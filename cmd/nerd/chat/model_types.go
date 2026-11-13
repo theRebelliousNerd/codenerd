@@ -545,6 +545,8 @@ type Model struct {
 	// Process memory usage (bytes). Updated periodically for UI.
 	memAllocBytes uint64
 	memSysBytes   uint64
+	// idleHeights is idleRowHeights at the last idle refit (layout.go).
+	idleHeights [3]int
 
 	// Input History
 	inputHistory []string

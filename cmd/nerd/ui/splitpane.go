@@ -182,8 +182,14 @@ func NewLogicPane(styles Styles, width, height int) LogicPane {
 	}
 }
 
-// SetSize updates the pane dimensions and invalidates cache
+// SetSize updates the pane dimensions. The render cache is dropped only when
+// the size changed: the chat refits its layout on a two-second idle tick, and
+// dropping the cache on every refit re-rendered the whole derivation tree
+// every two seconds for a pane that had not moved.
 func (p *LogicPane) SetSize(width, height int) {
+	if p.Width == width && p.Height == height && p.Viewport.Width == width && p.Viewport.Height == height {
+		return
+	}
 	p.Width = width
 	p.Height = height
 	p.Viewport.Width = width

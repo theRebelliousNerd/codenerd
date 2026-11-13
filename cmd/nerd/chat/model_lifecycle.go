@@ -3,7 +3,6 @@ package chat
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"strings"
 	"time"
 
@@ -184,9 +183,9 @@ func (m Model) ReportStatus(msg string) {
 // Runs periodically regardless of loading state so the footer stays fresh.
 func (m Model) tickMemory() tea.Cmd {
 	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
-		var ms runtime.MemStats
-		runtime.ReadMemStats(&ms)
-		return memUsageMsg{Alloc: ms.Alloc, Sys: ms.Sys}
+		// Read without stopping the world (core.RuntimeMemory).
+		alloc, sys := core.RuntimeMemory()
+		return memUsageMsg{Alloc: alloc, Sys: sys}
 	})
 }
 

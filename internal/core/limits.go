@@ -4,7 +4,7 @@ package core
 
 import (
 	"fmt"
-	"runtime"
+	"runtime/metrics"
 	"sync"
 
 	"codenerd/internal/logging"
@@ -104,9 +104,32 @@ func (le *LimitsEnforcer) GetMemoryUsage() int {
 	if fn != nil {
 		return fn()
 	}
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	return int(m.Alloc / 1024 / 1024)
+	alloc, _ := RuntimeMemory()
+	return int(alloc / 1024 / 1024)
+}
+
+// runtimeMemorySamples are the two runtime/metrics RuntimeMemory reads.
+var runtimeMemorySamples = []string{"/memory/classes/heap/objects:bytes", "/memory/classes/total:bytes"}
+
+// RuntimeMemory reports the bytes of heap objects (what MemStats calls Alloc)
+// and the bytes the runtime has mapped from the OS (Sys), read from
+// runtime/metrics. runtime.ReadMemStats stops every goroutine while it
+// walks the heap's statistics; with the world model loaded the heap is
+// several gigabytes, and both the chat's two-second footer tick and every
+// memory-limit check paid that pause. These two metrics need no pause.
+func RuntimeMemory() (alloc, sys uint64) {
+	samples := make([]metrics.Sample, len(runtimeMemorySamples))
+	for i, name := range runtimeMemorySamples {
+		samples[i].Name = name
+	}
+	metrics.Read(samples)
+	read := func(s metrics.Sample) uint64 {
+		if s.Value.Kind() != metrics.KindUint64 {
+			return 0
+		}
+		return s.Value.Uint64()
+	}
+	return read(samples[0]), read(samples[1])
 }
 
 // GetMemoryUtilization returns memory utilization as a percentage (0.0-1.0).

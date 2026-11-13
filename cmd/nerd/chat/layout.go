@@ -213,3 +213,19 @@ func (m Model) handleWindowSizeMsg(msg windowSizeMsg) Model {
 	m.height = msg.Height
 	return m.applyLayout()
 }
+
+// idleRowHeights measures the three parts of the frame that can change height
+// with no message of their own -- the footer (it wraps), the activity trail
+// and the resident-services section -- exactly as applyLayout measures them.
+// The idle memory tick refits only when one of them changed.
+func (m Model) idleRowHeights() [3]int {
+	var h [3]int
+	h[0] = lipgloss.Height(m.renderFooter())
+	if activity := m.renderActivityLine(); activity != "" {
+		h[1] = strings.Count(activity, "\n") + 1
+	}
+	if services := m.residentServicesReport(maxActivityTrail); services != "" {
+		h[2] = lipgloss.Height(m.styles.Text.Muted.Width(m.wrapWidth).Render(services))
+	}
+	return h
+}

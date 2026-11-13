@@ -616,8 +616,14 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 		m.memAllocBytes = msg.Alloc
 		m.memSysBytes = msg.Sys
 		// Services do not drive a task spinner. Refit their separate health
-		// section on the existing idle-safe refresh tick.
-		m = m.applyLayout()
+		// section on the existing idle-safe refresh tick -- but only when
+		// something that takes rows from the viewport changed height. A full
+		// refit every two seconds, with nothing moved, was the commonest slow
+		// Update handler of a live session (eight warnings in one evening).
+		if heights := m.idleRowHeights(); heights != m.idleHeights {
+			m = m.applyLayout()
+			m.idleHeights = m.idleRowHeights()
+		}
 		return m, m.tickMemory()
 
 	case bootCompleteMsg:
