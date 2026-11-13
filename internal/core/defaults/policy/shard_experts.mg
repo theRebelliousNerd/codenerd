@@ -43,42 +43,16 @@ task_technology(Task, File, Lang, /language) :-
 # records every import a Go, Python, JavaScript, TypeScript or Rust file makes
 # as dependency_link(File, _, Import). expert_task_file binds File first, so
 # the scan is the task's own imports, not the workspace's dependency_link.
-task_technology(Task, File, Tech, Via) :-
+task_technology(Task, File, Tech, /import) :-
     expert_task_file(Task, File),
     dependency_link(File, _, Import),
-    technology_import_exact(Import, Tech),
-    import_evidence(Tech, Via).
+    technology_import_exact(Import, Tech).
 
-task_technology(Task, File, Tech, Via) :-
+task_technology(Task, File, Tech, /import) :-
     expert_task_file(Task, File),
     dependency_link(File, _, Import),
     technology_import_prefix(Prefix, Tech),
-    :string:starts_with(Import, Prefix),
-    import_evidence(Tech, Via).
-
-# A technology that is itself a language (the extension table names it: Mangle,
-# SQL) reached through an import is that language's host library, called from
-# the importing file's own language: a Go file that builds a Mangle program
-# through mangle-go is Go code. It is the expert's broad field, like a
-# language match (/host_import): its knowledge is pushed and nothing is
-# spawned. Live 2026-11-12 a map index in a Go kernel file, no Mangle source
-# touched, bought a Mangle consult before each step and two Mangle reviews
-# (6.5 min) whose one finding's uplift round was reverted. A framework import
-# (bubbletea, cobra) names the expert's exact subject (/import).
-technology_is_language(Tech) :- extension_language(_, Tech).
-
-import_evidence(Tech, /host_import) :-
-    technology_import_exact(_, Tech),
-    technology_is_language(Tech).
-import_evidence(Tech, /host_import) :-
-    technology_import_prefix(_, Tech),
-    technology_is_language(Tech).
-import_evidence(Tech, /import) :-
-    technology_import_exact(_, Tech),
-    !technology_is_language(Tech).
-import_evidence(Tech, /import) :-
-    technology_import_prefix(_, Tech),
-    !technology_is_language(Tech).
+    :string:starts_with(Import, Prefix).
 
 # --- The verb ----------------------------------------------------------------
 
@@ -142,7 +116,6 @@ expert_file(Task, Agent, File) :-
 # expert on every turn for what its pushed atoms already carry.
 expert_evidence_confidence(/import, 90).
 expert_evidence_confidence(/language, 40).
-expert_evidence_confidence(/host_import, 40).
 
 # A verb that names a concept is the user asking for the domain, but it names
 # no code: the expert's knowledge is pushed into the turn like a language

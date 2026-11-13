@@ -359,37 +359,3 @@ func TestSelectionAgentsPreservesNeedOrder(t *testing.T) {
 		t.Errorf("empty Agents() = %v, want empty", got)
 	}
 }
-
-// An import of a language technology's host library from another language is
-// that other language's code: a Go file building Mangle programs through
-// mangle-go pushes the Mangle expert's knowledge and spawns no one, so no
-// consultation precedes its step and no Mangle review follows its change.
-// A framework import still routes its expert to execute.
-func TestSelectAHostLibraryImportIsNotTheLanguagesSubject(t *testing.T) {
-	k := rosterKernel(t)
-	if err := k.AssertBatch([]types.Fact{
-		{Predicate: "technology_import_prefix", Args: []any{"codeberg.org/TauCeti/mangle-go", types.MangleAtom("/mangle")}},
-		{Predicate: "dependency_link", Args: []any{"internal/core/kernel_query.go", "pkg:codeberg.org/TauCeti/mangle-go/ast", "codeberg.org/TauCeti/mangle-go/ast"}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	sel, err := Select(k, Task{Verb: "/fix", Targets: []string{"internal/core/kernel_query.go"}, Workspace: t.TempDir()})
-	if err != nil {
-		t.Fatalf("Select: %v", err)
-	}
-	if len(sel.Needs) != 1 {
-		t.Fatalf("needs = %+v, want the Mangle expert's knowledge only", sel.Needs)
-	}
-	mg := sel.Needs[0]
-	if experts := mg.Agent; AgentKey(experts) != "mangleexpert" || mg.Confidence != 40 || mg.Spawn != "" || mg.Critique {
-		t.Errorf("a Go file importing mangle-go consults or reviews the Mangle expert: %+v", mg)
-	}
-
-	sel, err = Select(k, Task{Verb: "/fix", Targets: []string{"cmd/nerd/chat/view.go"}, Workspace: t.TempDir()})
-	if err != nil {
-		t.Fatalf("Select: %v", err)
-	}
-	if len(sel.Needs) != 1 || sel.Needs[0].Confidence != 90 || sel.Needs[0].Spawn != SpawnLead {
-		t.Errorf("a framework import no longer routes its expert to lead: %+v", sel.Needs)
-	}
-}

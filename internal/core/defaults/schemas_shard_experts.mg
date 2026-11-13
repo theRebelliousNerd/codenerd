@@ -81,17 +81,9 @@ Decl expert_task_extension(Task, File, Ext) bound [/string, /string, /string].
 Decl expert_task_file(Task, File) bound [/string, /string].
 
 # task_technology(Task, File, Technology, Via) - a technology a task file uses.
-# Via: /language (the file's language), /import (an import of a framework
-# technology) or /host_import (an import of a language technology's host
-# library from another language, e.g. mangle-go from Go).
+# Via: /language (the file's language) or /import (an import under a
+# technology_import_prefix).
 Decl task_technology(Task, File, Technology, Via) bound [/string, /string, /name, /name].
-
-# technology_is_language(Technology) - the extension table names it a language.
-Decl technology_is_language(Technology) bound [/name].
-
-# import_evidence(Technology, Via) - what an import of the technology is
-# evidence of: /import or /host_import.
-Decl import_evidence(Technology, Via) bound [/name, /name].
 
 # reads_code_verb(Verb) - a conversational verb whose answer still reads the
 # target's code (explaining a policy file needs the engine's rules).
