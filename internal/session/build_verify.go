@@ -1055,6 +1055,11 @@ func (e *Executor) repairRound(
 	// _test.go files beside the turn's Go files: their prompt sends them there.
 	ctx = withRepairWriteGuard(ctx, e.workspaceForVerification(), result, writesTests)
 	ctx = broker.WithPhase(ctx, broker.PhaseRepair)
+	// The round's prompt is a repair payload: recorded, recallable, and
+	// retired from later requests once the next attempt's supersedes it.
+	if err := activeWorkingLoop(ctx).notePayload(ctx, prompt); err != nil {
+		return nil, 0, nil, nil, nil, false, err
+	}
 	return e.workingAttempt(ctx, trp, systemPrompt, history, toolDefs, cfg, result, prompt, commit)
 }
 

@@ -153,6 +153,16 @@ type PhaseSpend struct {
 	Cached  int64  `json:"cached_tokens"`
 }
 
+// CompositionSpend is what the measured requests of one phase were made of:
+// the receipts whose caller recorded a composition (session working
+// requests), with their parts summed in bytes beside the tokens billed.
+type CompositionSpend struct {
+	Phase string             `json:"phase"` // "round" for an ordinary round
+	Calls int                `json:"calls"`
+	Input int64              `json:"input_tokens"`
+	Bytes broker.Composition `json:"bytes"`
+}
+
 // ModelAccuracy is one model's estimate-versus-bill record.
 type ModelAccuracy struct {
 	Model string `json:"model"`
@@ -184,8 +194,12 @@ type MeterSummary struct {
 	// ByPhase splits a purpose's spend by the round it went to (repair,
 	// uplift, forced final...). Ordinary rounds carry no phase and are not
 	// listed, so this is what the named rounds cost on top of them.
-	ByPhase []PhaseSpend    `json:"by_phase,omitempty"`
-	ByModel []ModelAccuracy `json:"by_model"`
+	ByPhase []PhaseSpend `json:"by_phase,omitempty"`
+	// ByComposition says which part of the measured requests their bytes
+	// went to, per phase: a repair round's payload, the tool results, the
+	// focus views, the system prompt.
+	ByComposition []CompositionSpend `json:"by_composition,omitempty"`
+	ByModel       []ModelAccuracy    `json:"by_model"`
 	// RefusalsByCode says why turns did not happen. A refusal is the receipt an
 	// operator must not have to go looking for: it means a turn did not happen,
 	// and the user saw something else instead.
@@ -200,6 +214,7 @@ func summarizeReceipts(receipts []broker.Receipt) MeterSummary {
 
 	purposes := map[string]*PurposeSpend{}
 	phases := map[[2]string]*PhaseSpend{}
+	compositions := map[string]*CompositionSpend{}
 	type modelAcc struct {
 		calls      int
 		sumAbs     float64
@@ -250,6 +265,20 @@ func summarizeReceipts(receipts []broker.Receipt) MeterSummary {
 			ph.Input += r.Actual.InputTokens
 			ph.Output += r.Actual.OutputTokens
 			ph.Cached += r.Actual.CachedTokens
+		}
+		if r.Composition != nil {
+			phase := string(r.Phase)
+			if phase == "" {
+				phase = "round"
+			}
+			cs, ok := compositions[phase]
+			if !ok {
+				cs = &CompositionSpend{Phase: phase}
+				compositions[phase] = cs
+			}
+			cs.Calls++
+			cs.Input += r.Actual.InputTokens
+			cs.Bytes = cs.Bytes.Plus(*r.Composition)
 		}
 
 		if r.Err != "" {
@@ -309,6 +338,11 @@ func summarizeReceipts(receipts []broker.Receipt) MeterSummary {
 		return a.Purpose+"/"+a.Phase < b.Purpose+"/"+b.Phase
 	})
 
+	for _, cs := range compositions {
+		s.ByComposition = append(s.ByComposition, *cs)
+	}
+	sort.Slice(s.ByComposition, func(i, j int) bool { return s.ByComposition[i].Phase < s.ByComposition[j].Phase })
+
 	for model, ma := range models {
 		acc := ModelAccuracy{Model: model, Calls: ma.calls, ExactCounts: ma.exact, WorstErrorPct: ma.worst}
 		if ma.errSamples > 0 {
@@ -349,6 +383,21 @@ func printMeterSummary(w io.Writer, s MeterSummary) {
 		for _, p := range s.ByPhase {
 			fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\n",
 				p.Purpose, p.Phase, p.Calls, humanTokens(p.Input), humanTokens(p.Output), humanTokens(p.Cached))
+		}
+		_ = tw.Flush()
+	}
+
+	if len(s.ByComposition) > 0 {
+		fmt.Fprintln(w, "\nWhat the measured requests were made of — bytes, mean per call:")
+		tw = tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "PHASE\tCALLS\tINPUT/CALL\tTOTAL\tSYSTEM\tCATALOG\tHISTORY\tTOOL RESULTS\tVIEWS\tNOTES\tREPAIR PAYLOAD")
+		for _, c := range s.ByComposition {
+			n := c.Calls
+			b := c.Bytes
+			history := b.Prior + b.Task + b.Assistant + b.Reasoning
+			fmt.Fprintf(tw, "%s\t%d\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n",
+				c.Phase, n, humanTokens(c.Input/int64(n)), b.Total()/n, b.System/n, b.Catalog/n, history/n,
+				b.ToolResults/n, b.Views/n, b.Notes/n, b.RepairPayload/n)
 		}
 		_ = tw.Flush()
 	}

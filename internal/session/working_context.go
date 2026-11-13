@@ -46,6 +46,10 @@ type workingLoop struct {
 	// compaction leaves them while they stay live (working_recall_held).
 	handles  map[string]string
 	recalled map[string]bool
+	// payloads maps the digest of a repair round's prompt to the storage id
+	// it was recorded under (notePayload): the user turns of the ledger that
+	// are repair payloads, which a later payload supersedes (working_retire).
+	payloads map[string]string
 	regime   string // the policy's working_regime for the next round
 	// searchOpen is the policy's working_search_open. False at the start of a
 	// loop: the raw search tools are withheld until the policy derives it.
@@ -637,7 +641,16 @@ func (loop *workingLoop) assemble(ctx context.Context, history []types.Message, 
 				results[j].Content = compactedResultHandle(results[j].Content, handle)
 			}
 		}
-		messages = append(messages, history[i].WithToolResults(results).WithTrailingText(loop.appended[ledgerKey(i)]))
+		turn := history[i]
+		// A retired repair payload reads as its recall handle (working_retire).
+		if id := loop.payloadOf(turn); id != "" && loop.evicted[payloadCall(id)] {
+			handle, err := loop.modelHandle(ctx, id)
+			if err != nil {
+				return nil, nil, err
+			}
+			turn.Text = retiredPayloadHandle(turn.Text, handle)
+		}
+		messages = append(messages, turn.WithToolResults(results).WithTrailingText(loop.appended[ledgerKey(i)]))
 		keys = append(keys, ledgerKey(i))
 	}
 	return loop.withoutShedReasoning(messages, keys), keys, nil
@@ -767,11 +780,21 @@ func ledgerStart(history []types.Message, task string) int {
 func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history []types.Message, start, free int) error {
 	round := 0
 	var entries []working.LedgerEntry
+	payloadKeys := map[string]string{} // a payload row -> the ledger key of its turn
 	for i := start; i < len(history); i++ {
 		if history[i].Role == "assistant" && len(history[i].ToolCalls) > 0 {
 			round++
 		}
 		extra := len(loop.appended[ledgerKey(i)])
+		// A repair payload is a row of its own (working_payload); one already
+		// retired or moved out is not counted again.
+		if id := loop.payloadOf(history[i]); id != "" {
+			if call := payloadCall(id); !loop.evicted[call] {
+				entries = append(entries, working.LedgerEntry{Call: call, ID: id, Bytes: len(history[i].Text) + extra, Round: round, Payload: true})
+				payloadKeys[call] = ledgerKey(i)
+			}
+			continue
+		}
 		for _, r := range history[i].ToolResults {
 			// A result with no observation has no recall handle, so it cannot
 			// leave the ledger; one already moved out is not counted again.
@@ -821,6 +844,28 @@ func (e *Executor) updateLedger(ctx context.Context, loop *workingLoop, history 
 		loop.viewed = ""
 		loop.carriedViews = make(map[string]struct{})
 		logging.Context("Working ledger: compaction at round %d moved %d result(s) out behind their recall handles", round, len(decision.Evict))
+	}
+	// A retired repair payload is no compaction: no epoch starts, and only the
+	// payload's own turn changes -- its prompt becomes its recall handle, and
+	// a view snapshot riding it that a later snapshot of the same file
+	// supersedes collapses with it (working_shed.go).
+	retiredBytes := 0
+	for _, call := range decision.Retire {
+		if loop.evicted[call] {
+			continue
+		}
+		loop.evicted[call] = true
+		for _, entry := range entries {
+			if entry.Call == call {
+				retiredBytes += entry.Bytes
+			}
+		}
+		if key := payloadKeys[call]; key != "" {
+			loop.collapseSupersededSnapshotsAt(key)
+		}
+	}
+	if len(decision.Retire) > 0 {
+		logging.Get(logging.CategorySession).Info("Working ledger: retired %d superseded repair payload(s), %d bytes, behind their recall handles at round %d", len(decision.Retire), retiredBytes, round)
 	}
 
 	// The harness's text rides the request's last user turn; a request that
@@ -1018,11 +1063,19 @@ func (e *Executor) completeWithWorkingContext(ctx context.Context, provider type
 	// changed the list (the regime closing, search opening), each reading
 	// only the system prompt from cache (0 to ~15k of up to 168k tokens);
 	// those 70 requests billed $0.45.
-	history, err := e.prepareWorkingRequest(ctx, system, history, definitions)
+	messages, err := e.prepareWorkingRequest(ctx, system, history, definitions)
 	if err != nil {
 		return nil, fmt.Errorf("compile working context: %w", err)
 	}
-	return provider.CompleteWithToolResults(ctx, system, history, definitions)
+	if loop == nil {
+		return provider.CompleteWithToolResults(ctx, system, messages, definitions)
+	}
+	// What the request is made of goes to the session log and, through the
+	// broker, to the request's receipt (request_composition.go).
+	composition := loop.composition(system, history, messages, definitions)
+	resp, err := provider.CompleteWithToolResults(broker.WithComposition(ctx, composition), system, messages, definitions)
+	logRequestComposition(ctx, composition, resp, err)
+	return resp, err
 }
 
 // remoteObservation reports a tool whose result is acquired from outside the

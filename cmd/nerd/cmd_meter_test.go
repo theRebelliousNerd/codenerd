@@ -509,3 +509,36 @@ func TestMeterSummary_WhenReceiptsCarryPhases_ShouldSplitThemOut(t *testing.T) {
 		t.Errorf("cache write = %d, want 100", s.CacheWriteTokens)
 	}
 }
+
+// Receipts that carry their request's composition are summed per phase, so
+// the meter says which part of a repair round's requests the tokens went to.
+func TestMeterSummary_WhenReceiptsCarryCompositions_ShouldSumThemPerPhase(t *testing.T) {
+	ok := broker.Decision{Allowed: true, Code: broker.DecisionAdmitted}
+	repair := &broker.Composition{System: 4000, ToolResults: 2000, RepairPayload: 30000, RepairPayloads: 1}
+	round := &broker.Composition{System: 4000, ToolResults: 9000}
+	receipts := []broker.Receipt{
+		{Purpose: broker.PurposeSession, Phase: broker.PhaseRepair, Composition: repair, Actual: broker.Spend{InputTokens: 9000, Calls: 1}, Decision: ok},
+		{Purpose: broker.PurposeSession, Phase: broker.PhaseRepair, Composition: repair, Actual: broker.Spend{InputTokens: 9000, Calls: 1}, Decision: ok},
+		{Purpose: broker.PurposeSession, Composition: round, Actual: broker.Spend{InputTokens: 3000, Calls: 1}, Decision: ok},
+		{Purpose: broker.PurposeCritic, Actual: broker.Spend{InputTokens: 200, Calls: 1}, Decision: ok},
+	}
+	s := summarizeReceipts(receipts)
+	if len(s.ByComposition) != 2 {
+		t.Fatalf("ByComposition = %+v, want the repair phase and the ordinary round", s.ByComposition)
+	}
+	got := map[string]CompositionSpend{}
+	for _, c := range s.ByComposition {
+		got[c.Phase] = c
+	}
+	if r := got["repair"]; r.Calls != 2 || r.Input != 18000 || r.Bytes.RepairPayload != 60000 || r.Bytes.RepairPayloads != 2 {
+		t.Errorf("repair = %+v", r)
+	}
+	if r := got["round"]; r.Calls != 1 || r.Bytes.ToolResults != 9000 {
+		t.Errorf("round = %+v", r)
+	}
+	var out strings.Builder
+	printMeterSummary(&out, s)
+	if !strings.Contains(out.String(), "REPAIR PAYLOAD") || !strings.Contains(out.String(), "30000") {
+		t.Errorf("the readout does not show the composition:\n%s", out.String())
+	}
+}

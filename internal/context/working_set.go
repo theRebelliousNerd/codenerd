@@ -143,12 +143,16 @@ func (w *WorkingSet) Entity(ctx context.Context, id string) (string, error) {
 	return records[0].Entity, nil
 }
 
-// LedgerEntry is one tool result a working request carries whole.
+// LedgerEntry is one tool result a working request carries whole, or one
+// repair payload (Payload): a repair round's prompt, which rides a user turn.
 type LedgerEntry struct {
-	Call  string // the tool call it answers
+	Call  string // the tool call it answers; a payload's own row id
 	ID    string // the observation it holds
 	Bytes int    // its rendered size, with any harness text appended to it
 	Round int    // the round it entered
+	// Payload marks a repair round's prompt (working_payload): retired once a
+	// later payload supersedes it (working_retire).
+	Payload bool
 }
 
 // LedgerRound is what the harness measured for the round being prepared.
@@ -185,6 +189,10 @@ type LedgerDecision struct {
 	// recall handles (working_evict); empty when the ledger is under its
 	// ceiling (no working_compact).
 	Evict []string
+	// Retire names the repair payloads a later one supersedes
+	// (working_retire): carried as their recall handles from this request
+	// on, with no compaction and no new epoch.
+	Retire []string
 	// Restate names the observations still carried whose file changed after
 	// they were made, and that have not been restated at its current revision
 	// (working_restate).
@@ -244,6 +252,9 @@ func (w *WorkingSet) Ledger(ctx context.Context, in LedgerRound) (LedgerDecision
 		// Arrival order, not call-id order: the shed order's tie-break and its
 		// chain position, dense from 0.
 		add("working_ledger_seq", e.Call, int64(i))
+		if e.Payload {
+			add("working_payload", e.ID)
+		}
 		if !seenID[e.ID] {
 			seenID[e.ID] = true
 			ids = append(ids, e.ID)
@@ -299,7 +310,7 @@ func (w *WorkingSet) Ledger(ctx context.Context, in LedgerRound) (LedgerDecision
 	// Replace, not accumulate: every one of these describes this round only.
 	// A recalled id or a touch left from the previous round would hold a
 	// result the loop is no longer carrying.
-	if err := w.engine.ReplaceControlFacts(facts, "working_round_now", "working_ledger_room", "working_ledger", "working_ledger_seq", "working_observation", "working_digest", "working_span", "working_revision", "working_restated", "working_entity_file", "working_hot", "working_touch", "working_recalled"); err != nil {
+	if err := w.engine.ReplaceControlFacts(facts, "working_round_now", "working_ledger_room", "working_ledger", "working_ledger_seq", "working_payload", "working_observation", "working_digest", "working_span", "working_revision", "working_restated", "working_entity_file", "working_hot", "working_touch", "working_recalled"); err != nil {
 		return LedgerDecision{}, err
 	}
 	decision := LedgerDecision{Revisions: revisions}
@@ -312,6 +323,16 @@ func (w *WorkingSet) Ledger(ctx context.Context, in LedgerRound) (LedgerDecision
 			decision.Evict = append(decision.Evict, call)
 		}
 	}
+	retire, err := w.engine.Query(ctx, "working_retire(Call)")
+	if err != nil {
+		return LedgerDecision{}, err
+	}
+	for _, row := range retire.Bindings {
+		if call, _ := row["Call"].(string); call != "" {
+			decision.Retire = append(decision.Retire, call)
+		}
+	}
+	sort.Strings(decision.Retire)
 	restate, err := w.engine.Query(ctx, "working_restate(ID)")
 	if err != nil {
 		return LedgerDecision{}, err

@@ -183,6 +183,9 @@ func (c *core) admit(ctx context.Context, req *Request) (Receipt, *AdmissionErro
 		Phase:           PhaseFromContext(ctx),
 		Prefix:          prefixFingerprint(req),
 	}
+	if comp, ok := CompositionFromContext(ctx); ok {
+		receipt.Composition = &comp
+	}
 
 	count, err := c.cfg.Counter.Count(ctx, req)
 	if err != nil {
