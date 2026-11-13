@@ -1380,7 +1380,7 @@ func (h *HolographicProvider) queryRelationshipsWithContext(ctx context.Context,
 		if err := ctx.Err(); err != nil {
 			return
 		}
-		facts, err := h.kernel.Query(core.BoundQuery("code_defines", 5, map[int]string{0: spelling}))
+		facts, err := core.BoundRows(h.kernel, "code_defines", 5, map[int]any{0: spelling})
 		if err != nil {
 			return
 		}
@@ -1427,7 +1427,7 @@ func (h *HolographicProvider) queryRelationshipsWithContext(ctx context.Context,
 			if err := ctx.Err(); err != nil {
 				return
 			}
-			callFacts, err := h.kernel.Query(core.BoundQuery("code_calls", 2, map[int]string{pos: sym}))
+			callFacts, err := core.BoundRows(h.kernel, "code_calls", 2, map[int]any{pos: sym})
 			if err != nil {
 				return
 			}

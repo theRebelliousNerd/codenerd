@@ -313,7 +313,7 @@ func (sm *ShadowMode) projectEffects(action SimulatedAction) []SimulatedEffect {
 		// silently empty dependency graph makes every simulation look local.
 		// Only the edges that end at the written file, from the argument
 		// index: the relation has a row per import edge of the workspace.
-		deps, depErr := sm.shadowKernel.Query(BoundQuery("dependency_link", 3, map[int]string{1: action.Target}))
+		deps, depErr := sm.shadowKernel.QueryBound("dependency_link", 3, map[int]any{1: action.Target})
 		if depErr != nil {
 			logging.Get(logging.CategoryKernel).Warn("shadow dependency_link query failed, impact effects omitted: %v", depErr)
 		}

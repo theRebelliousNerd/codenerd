@@ -45,7 +45,7 @@ func TestBoundQuery_MatchesTheScanItReplaces(t *testing.T) {
 				want++
 			}
 		}
-		got, err := k.Query(BoundQuery("dependency_link", 3, map[int]string{c.pos: c.value}))
+		got, err := k.QueryBound("dependency_link", 3, map[int]any{c.pos: c.value})
 		if err != nil {
 			t.Fatalf("%q at %d: %v", c.value, c.pos, err)
 		}
@@ -82,7 +82,7 @@ func BenchmarkDependencyRowsOfOneFile(b *testing.B) {
 	})
 	b.Run("bound", func(b *testing.B) {
 		b.ReportAllocs()
-		q := BoundQuery("dependency_link", 3, map[int]string{0: "pkg/f00007.go"})
+		q := BoundQuery("dependency_link", 3, map[int]any{0: "pkg/f00007.go"})
 		for b.Loop() {
 			rows, _ := k.Query(q)
 			if len(rows) == 0 {
@@ -90,4 +90,68 @@ func BenchmarkDependencyRowsOfOneFile(b *testing.B) {
 			}
 		}
 	})
+}
+
+// Both kernels answer bound queries from their index. If either stopped
+// satisfying this, BoundRows would quietly fall back to copying the relation.
+var (
+	_ interface {
+		QueryBound(pred string, arity int, bound map[int]any) ([]Fact, error)
+	} = (*RealKernel)(nil)
+	_ interface {
+		QueryBound(pred string, arity int, bound map[int]any) ([]Fact, error)
+	} = (*CortexKernel)(nil)
+)
+
+type barePredicateQuerier struct{ rows map[string][]Fact }
+
+func (b barePredicateQuerier) Query(pred string) ([]Fact, error) { return b.rows[pred], nil }
+
+// A querier with no index is asked for the predicate and filtered here, to the
+// same rows the index returns: strings by value, a name constant by its name,
+// rows of another arity never.
+func TestBoundRows_FallsBackToAnExactFilter(t *testing.T) {
+	k := boundQueryKernel(t, 3000)
+	if err := k.Assert(Fact{Predicate: "symbol_graph", Args: []any{"func:A", MangleAtom("/function"), MangleAtom("/public"), "a.go", "func A()"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.Assert(Fact{Predicate: "symbol_graph", Args: []any{"func:b", MangleAtom("/function"), MangleAtom("/private"), "a.go", "func b()"}}); err != nil {
+		t.Fatal(err)
+	}
+	bare := barePredicateQuerier{rows: map[string][]Fact{}}
+	for _, pred := range []string{"dependency_link", "symbol_graph"} {
+		rows, err := k.Query(pred)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bare.rows[pred] = rows
+	}
+	bare.rows["dependency_link"] = append(bare.rows["dependency_link"], Fact{Predicate: "dependency_link", Args: []any{"pkg/f00007.go"}})
+	for _, c := range []struct {
+		pred  string
+		arity int
+		bound map[int]any
+	}{
+		{"dependency_link", 3, map[int]any{0: "pkg/f00007.go"}},
+		{"dependency_link", 3, map[int]any{1: "pkg:mod/p000001"}},
+		{"dependency_link", 3, map[int]any{0: "none.go"}},
+		{"symbol_graph", 5, map[int]any{2: MangleAtom("/public")}},
+		{"symbol_graph", 5, map[int]any{2: MangleAtom("/private"), 0: "func:b"}},
+	} {
+		indexed, err := BoundRows(k, c.pred, c.arity, c.bound)
+		if err != nil {
+			t.Fatal(err)
+		}
+		filtered, err := BoundRows(bare, c.pred, c.arity, c.bound)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(indexed) != len(filtered) {
+			t.Fatalf("%s %v: the index returns %d rows, the filter %d", c.pred, c.bound, len(indexed), len(filtered))
+		}
+	}
+	public, _ := BoundRows(k, "symbol_graph", 5, map[int]any{2: MangleAtom("/public")})
+	if len(public) != 1 {
+		t.Fatalf("one public symbol was asserted, the index returns %d", len(public))
+	}
 }

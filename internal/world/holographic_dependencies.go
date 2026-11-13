@@ -86,7 +86,7 @@ func (h *HolographicProvider) applyDirectImporters(hc *HolographicContext, fileP
 	// Only the rows that import this package, from the argument index: the
 	// relation has a row per import edge of the workspace (251k here) and this
 	// runs for every file the model opens.
-	facts, err := h.kernel.Query(core.BoundQuery("dependency_link", 3, map[int]string{1: target}))
+	facts, err := core.BoundRows(h.kernel, "dependency_link", 3, map[int]any{1: target})
 	if err != nil {
 		logging.WorldDebug("applyDirectImporters: dependency_link query failed: %v", err)
 		return

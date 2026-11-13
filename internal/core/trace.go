@@ -196,7 +196,7 @@ func (k *RealKernel) findPremises(ctx context.Context, fact mangle.Fact, ruleNam
 			// edge of the workspace for each fact explained).
 			query := "dependency_link"
 			if s, ok := fact.Args[0].(string); ok && !strings.HasPrefix(s, "/") {
-				query = BoundQuery("dependency_link", 3, map[int]string{0: s})
+				query = BoundQuery("dependency_link", 3, map[int]any{0: s})
 			}
 			deps, _ := k.Query(query)
 			for _, d := range deps {

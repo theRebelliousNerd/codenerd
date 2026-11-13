@@ -120,7 +120,7 @@ func (h *HolographicProvider) attachDeclaredSpans(callers []PrioritizedCaller) [
 			continue
 		}
 		asked[c.File] = struct{}{}
-		facts, err := h.kernel.Query(core.BoundQuery("code_defines", 5, map[int]string{0: c.File}))
+		facts, err := core.BoundRows(h.kernel, "code_defines", 5, map[int]any{0: c.File})
 		if err != nil {
 			return callers
 		}

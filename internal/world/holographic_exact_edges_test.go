@@ -83,6 +83,8 @@ func TestHolographicDirectImporters_AsksOnlyForThePackagesRows(t *testing.T) {
 	}
 }
 
+// recordingQuerier has an argument index, as the kernels do, and records what
+// it was asked for whole.
 type recordingQuerier struct {
 	stubQuerier
 	queries []string
@@ -91,4 +93,8 @@ type recordingQuerier struct {
 func (r *recordingQuerier) Query(pred string) ([]core.Fact, error) {
 	r.queries = append(r.queries, pred)
 	return r.stubQuerier.Query(pred)
+}
+
+func (r *recordingQuerier) QueryBound(pred string, arity int, bound map[int]any) ([]core.Fact, error) {
+	return core.BoundRows(&r.stubQuerier, pred, arity, bound)
 }

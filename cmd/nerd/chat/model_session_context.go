@@ -415,7 +415,7 @@ func (m *Model) querySymbolContext() []string {
 	var symbols []string
 	for _, visibility := range []string{"/public", "/exported"} {
 		// symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature)
-		results, err := m.kernel.Query("symbol_graph(ID, Type, " + visibility + ", At, Sig)")
+		results, err := core.BoundRows(m.kernel, "symbol_graph", 5, map[int]any{2: core.MangleAtom(visibility)})
 		if err != nil {
 			return symbols
 		}
@@ -489,7 +489,7 @@ func (m *Model) queryDependencyContext(files []string) []string {
 		emitted := make(map[string]bool)
 		for pos := range 2 {
 			for _, spelling := range spellings {
-				results, err := m.kernel.Query(core.BoundQuery("dependency_link", 3, map[int]string{pos: spelling}))
+				results, err := core.BoundRows(m.kernel, "dependency_link", 3, map[int]any{pos: spelling})
 				if err != nil {
 					return deps
 				}
