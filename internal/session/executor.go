@@ -1109,6 +1109,9 @@ type ExecutionResult struct {
 	// what was measured and the content of every file the turn wrote
 	// (gate_memo.go).
 	gateRuns map[string]gateRun
+	// pinRuns are the pinning gate's finished verdicts, one per change taken
+	// out, keyed like gateRuns and by the change (pin_gate.go).
+	pinRuns map[string]pinVerdict
 
 	// WrittenPaths records the target of every successful write mutation, so
 	// post-edit build verification can tell a turn that touched Go source from

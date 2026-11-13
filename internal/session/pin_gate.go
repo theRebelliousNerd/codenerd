@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -496,12 +497,84 @@ func pinRoundOutcome(ctx context.Context, unpinned, unmeasured []string) VerifyO
 	}
 }
 
-func measureUnits(ctx context.Context, workspace string, units []pinUnit, runArg string, names, pkgs []string, bound time.Duration) (unpinned, unmeasured []string) {
-	type measured struct{ verdict, why string }
-	results := make([]measured, len(units))
+// pinVerdict is one change's finished measurement: "pinned" or "unpinned",
+// and why.
+type pinVerdict struct{ verdict, why string }
+
+// pinMemo is the pinning gate's memo for one measurement: the turn's verdicts
+// under base, the key of everything the runs read (gateKey over the turn's
+// packages, the tests run and their packages). "" disables it.
+type pinMemo struct {
+	result *ExecutionResult
+	base   string
+}
+
+// pinMemoFor keys a pin measurement on what it reads. The gate is measured
+// after the test gate, again after each pinning repair and again at closure;
+// live 2026-11-12 one turn ran it 42 times (90 s), the closure re-measuring a
+// tree the last round had already measured whole. A verdict is a function of
+// the tree, the change taken out and the tests run, so a later measurement of
+// the same change on the same key is answered by the one made; any write
+// changes the key and every change is measured again.
+func pinMemoFor(ctx context.Context, workspace string, result *ExecutionResult, runArg string, pkgs []string) pinMemo {
+	if result == nil {
+		return pinMemo{}
+	}
+	key := gateKey(ctx, "pin", workspace, result)
+	if key == "" {
+		return pinMemo{}
+	}
+	return pinMemo{result: result, base: key + "|" + runArg + "|" + strings.Join(pkgs, ",")}
+}
+
+func (m pinMemo) key(u pinUnit) string {
+	if m.base == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(u.content))
+	return fmt.Sprintf("%s|%s|%t|%t|%t|%x", m.base, u.label(), u.added, u.absent, u.forced, sum)
+}
+
+func (m pinMemo) recall(u pinUnit) (pinVerdict, bool) {
+	k := m.key(u)
+	if k == "" || m.result == nil {
+		return pinVerdict{}, false
+	}
+	v, ok := m.result.pinRuns[k]
+	return v, ok
+}
+
+// remember keeps a finished verdict; an unmeasured one is not a measurement.
+func (m pinMemo) remember(u pinUnit, v pinVerdict) {
+	k := m.key(u)
+	if k == "" || m.result == nil || (v.verdict != "pinned" && v.verdict != "unpinned") {
+		return
+	}
+	if m.result.pinRuns == nil {
+		m.result.pinRuns = map[string]pinVerdict{}
+	}
+	m.result.pinRuns[k] = v
+}
+
+// allRecalled reports whether every unit has a verdict in the memo.
+func (m pinMemo) allRecalled(units []pinUnit) bool {
+	for _, u := range units {
+		if _, ok := m.recall(u); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func measureUnits(ctx context.Context, workspace string, units []pinUnit, runArg string, names, pkgs []string, bound time.Duration, memo pinMemo) (unpinned, unmeasured []string) {
+	results := make([]pinVerdict, len(units))
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, pinWorkers())
 	for i, u := range units {
+		if v, ok := memo.recall(u); ok {
+			results[i] = v
+			continue
+		}
 		wg.Add(1)
 		go func(i int, u pinUnit) {
 			defer wg.Done()
@@ -517,10 +590,15 @@ func measureUnits(ctx context.Context, workspace string, units []pinUnit, runArg
 				}
 			}
 			logging.Get(logging.CategorySession).Info("pinning gate: %s -> %s%s", u.label(), verdict, suffixed(why))
-			results[i] = measured{verdict, why}
+			results[i] = pinVerdict{verdict, why}
 		}(i, u)
 	}
 	wg.Wait()
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		for i, r := range results {
+			memo.remember(units[i], r)
+		}
+	}
 	for i, r := range results {
 		switch r.verdict {
 		case "unpinned":
@@ -595,12 +673,26 @@ func verifyPinning(ctx context.Context, workspace string, result *ExecutionResul
 			Reason: "the turn changed functions and wrote no test", Duration: time.Since(start)}
 	}
 	runArg := baselineRunRegex(names)
-	bound, why := pinBaseline(ctx, workspace, runArg, names, pkgs)
-	if bound <= 0 {
-		return BuildVerification{Outcome: VerifyIndeterminate, Reason: "the turn's tests were not measured on their own first: " + why, Duration: time.Since(start)}
+	memo := pinMemoFor(ctx, workspace, result, runArg, pkgs)
+	var conditions []pinUnit
+	if withConditions {
+		conditions = conditionsFor(workspace, result)
+	}
+	// The baseline bounds the runs still to make. When the memo answers
+	// every change, there are none: the verdicts it holds were measured
+	// against a passing baseline of this same tree.
+	var bound time.Duration
+	if !memo.allRecalled(units) || !memo.allRecalled(conditions) {
+		var why string
+		bound, why = pinBaseline(ctx, workspace, runArg, names, pkgs)
+		if bound <= 0 {
+			return BuildVerification{Outcome: VerifyIndeterminate, Reason: "the turn's tests were not measured on their own first: " + why, Duration: time.Since(start)}
+		}
+	} else {
+		logging.Get(logging.CategorySession).Info("pinning gate: %d change(s) and %d condition(s) already measured on this tree; not run again", len(units), len(conditions))
 	}
 	doneUnits := liveVerification(ctx, []string{"pinning:", fmt.Sprintf("%d change(s) taken out one at a time against %d test(s)", len(units), len(names))}, "")
-	unpinned, unmeasured := measureUnits(ctx, workspace, units, runArg, names, pkgs, bound)
+	unpinned, unmeasured := measureUnits(ctx, workspace, units, runArg, names, pkgs, bound, memo)
 	doneUnits(pinRoundOutcome(ctx, unpinned, unmeasured))
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return BuildVerification{Outcome: VerifyCanceled, Reason: "canceled while measuring", Duration: time.Since(start)}
@@ -613,9 +705,8 @@ func verifyPinning(ctx context.Context, workspace string, result *ExecutionResul
 		// observable, and a verdict cannot rest on a question whose answer is
 		// sometimes unanswerable. The round hands them to the model, the log
 		// and the record keep them for the review.
-		conditions := conditionsFor(workspace, result)
 		doneConditions := liveVerification(ctx, []string{"pinning:", fmt.Sprintf("%d condition(s) forced one at a time (advisory)", len(conditions))}, "")
-		survived, _ := measureUnits(ctx, workspace, conditions, runArg, names, pkgs, bound)
+		survived, _ := measureUnits(ctx, workspace, conditions, runArg, names, pkgs, bound, memo)
 		doneConditions(pinRoundOutcome(ctx, nil, nil))
 		result.PinAdvisory = survived
 		if len(survived) > 0 {

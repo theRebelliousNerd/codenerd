@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"codenerd/internal/core"
@@ -323,5 +324,51 @@ func TestVerifyCompletedToolTurn_AnUnpinnedChangeIsSentBackForATestThatPinsIt(t 
 	}
 	if data, _ := os.ReadFile(filepath.Join(h.ws, "helper_test.go")); !strings.Contains(string(data), "TestGreet") {
 		t.Fatalf("the pinning test did not land on disk:\n%s", data)
+	}
+}
+
+// A pin measurement of a tree the turn has already measured whole is
+// answered by the verdicts it made: no mutant and no baseline is run again.
+// Any write is a new tree, measured again. Live 2026-11-12 the gate ran 42
+// test processes in one turn, the closure re-measuring what the last
+// pinning round had just measured.
+func TestVerifyPinning_ATreeAlreadyMeasuredIsNotRunAgain(t *testing.T) {
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	ws, result := pinTurn(t)
+	real := verifyTestRunner
+	var mu sync.Mutex
+	runs := 0
+	verifyTestRunner = func(ctx context.Context, dir string, env []string, name string, args []string) ([]byte, error) {
+		mu.Lock()
+		runs++
+		mu.Unlock()
+		return real(ctx, dir, env, name, args)
+	}
+	t.Cleanup(func() { verifyTestRunner = real })
+	count := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		n := runs
+		runs = 0
+		return n
+	}
+
+	first := verifyPinning(context.Background(), ws, result, true)
+	if first.Verdict() != VerifyFailed || count() == 0 {
+		t.Fatalf("first measurement = %s, want failed after running the mutants", first.Verdict())
+	}
+	again := verifyPinning(context.Background(), ws, result, false)
+	if n := count(); n != 0 {
+		t.Fatalf("the same tree was measured again: %d test process(es)", n)
+	}
+	if again.Verdict() != VerifyFailed || again.Output != first.Output {
+		t.Fatalf("the recalled verdict differs: %s\n%s\nwant\n%s", again.Verdict(), again.Output, first.Output)
+	}
+
+	writeWorkspaceFile(t, ws, "helper_test.go", pinHelperTests+pinGreetTest)
+	if v := verifyPinning(context.Background(), ws, result, false); v.Verdict() != VerifyPassed || count() == 0 {
+		t.Fatalf("after a write the gate = %s without measuring again; want passed, measured", v.Verdict())
 	}
 }
