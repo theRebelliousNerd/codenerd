@@ -43,16 +43,42 @@ task_technology(Task, File, Lang, /language) :-
 # records every import a Go, Python, JavaScript, TypeScript or Rust file makes
 # as dependency_link(File, _, Import). expert_task_file binds File first, so
 # the scan is the task's own imports, not the workspace's dependency_link.
-task_technology(Task, File, Tech, /import) :-
+task_technology(Task, File, Tech, Via) :-
     expert_task_file(Task, File),
     dependency_link(File, _, Import),
-    technology_import_exact(Import, Tech).
+    technology_import_exact(Import, Tech),
+    import_evidence(Tech, Via).
 
-task_technology(Task, File, Tech, /import) :-
+task_technology(Task, File, Tech, Via) :-
     expert_task_file(Task, File),
     dependency_link(File, _, Import),
     technology_import_prefix(Prefix, Tech),
-    :string:starts_with(Import, Prefix).
+    :string:starts_with(Import, Prefix),
+    import_evidence(Tech, Via).
+
+# A technology that is itself a language (the extension table names it: Mangle,
+# SQL) reached through an import is that language's host library, called from
+# the importing file's own language: a Go file that builds a Mangle program
+# through mangle-go is Go code. It is the expert's broad field, like a
+# language match (/host_import): its knowledge is pushed and nothing is
+# spawned. Live 2026-11-12 a map index in a Go kernel file, no Mangle source
+# touched, bought a Mangle consult before each step and two Mangle reviews
+# (6.5 min) whose one finding's uplift round was reverted. A framework import
+# (bubbletea, cobra) names the expert's exact subject (/import).
+technology_is_language(Tech) :- extension_language(_, Tech).
+
+import_evidence(Tech, /host_import) :-
+    technology_import_exact(_, Tech),
+    technology_is_language(Tech).
+import_evidence(Tech, /host_import) :-
+    technology_import_prefix(_, Tech),
+    technology_is_language(Tech).
+import_evidence(Tech, /import) :-
+    technology_import_exact(_, Tech),
+    !technology_is_language(Tech).
+import_evidence(Tech, /import) :-
+    technology_import_prefix(_, Tech),
+    !technology_is_language(Tech).
 
 # --- The verb ----------------------------------------------------------------
 
@@ -116,6 +142,7 @@ expert_file(Task, Agent, File) :-
 # expert on every turn for what its pushed atoms already carry.
 expert_evidence_confidence(/import, 90).
 expert_evidence_confidence(/language, 40).
+expert_evidence_confidence(/host_import, 40).
 
 # A verb that names a concept is the user asking for the domain, but it names
 # no code: the expert's knowledge is pushed into the turn like a language
@@ -233,6 +260,13 @@ expert_critique(Task, Agent) :-
 #               lead, when the stronger profile is configured;
 #   /knowledge  an adviser whose knowledge rows the compile already carried,
 #               on a task that is not complex;
+#   /unavailable an agent whose consultation failed on a provider error
+#               (outage, rate limit, credentials) earlier this turn under
+#               every profile there is: a later step does not ask it again
+#               this turn. With a stronger profile configured and not yet
+#               tried, that failure escalates once instead. Live 2026-11-12
+#               one fix turn asked the same expert on four steps through one
+#               503 outage, each attempt costing up to two minutes;
 #   /consult    everything else.
 
 consult_ask_scoped(Ask, Agent) :- consult_ask_file(Ask, Agent, _).
@@ -256,22 +290,45 @@ consult_card_unanswered(Ask, Agent) :-
     consult_ask_scoped(Ask, Agent),
     !consult_card_stale(Ask, Agent).
 
-consult_route(Ask, Agent, /unresolved) :-
-    consult_ask(Ask, Agent, _),
+# The provider that answers the agent failed it this turn under every
+# profile there is to ask it under.
+consult_provider_down(Ask, Agent) :-
+    consult_provider_failed(Ask, Agent, /escalated).
+
+consult_provider_down(Ask, Agent) :-
+    consult_provider_failed(Ask, Agent, /ordinary),
+    !consult_escalation_available(Ask).
+
+consult_left_open(Ask, Agent) :-
     consult_card_unanswered(Ask, Agent),
     consult_card_escalated(Ask, Agent).
+
+consult_route(Ask, Agent, /unresolved) :-
+    consult_ask(Ask, Agent, _),
+    consult_left_open(Ask, Agent).
 
 consult_escalates(Ask, Agent) :-
     consult_ask(Ask, Agent, _),
     consult_card_unanswered(Ask, Agent),
     !consult_card_escalated(Ask, Agent),
-    consult_escalation_available(Ask).
+    consult_escalation_available(Ask),
+    !consult_provider_down(Ask, Agent).
 
 consult_escalates(Ask, Agent) :-
     consult_ask(Ask, Agent, /lead),
     consult_ask_complex(Ask),
     consult_escalation_available(Ask),
-    !consult_card_unanswered(Ask, Agent).
+    !consult_card_unanswered(Ask, Agent),
+    !consult_provider_down(Ask, Agent).
+
+# The ordinary profile's provider failed this turn and the stronger one has
+# not been tried: ask it there.
+consult_escalates(Ask, Agent) :-
+    consult_ask(Ask, Agent, _),
+    consult_provider_failed(Ask, Agent, /ordinary),
+    consult_escalation_available(Ask),
+    !consult_provider_down(Ask, Agent),
+    !consult_knowledge_suffices(Ask, Agent).
 
 consult_route(Ask, Agent, /escalate) :- consult_escalates(Ask, Agent).
 
@@ -284,11 +341,18 @@ consult_knowledge_suffices(Ask, Agent) :-
 
 consult_route(Ask, Agent, /knowledge) :- consult_knowledge_suffices(Ask, Agent).
 
+consult_route(Ask, Agent, /unavailable) :-
+    consult_ask(Ask, Agent, _),
+    consult_provider_down(Ask, Agent),
+    !consult_knowledge_suffices(Ask, Agent),
+    !consult_left_open(Ask, Agent).
+
 consult_settled(Ask, Agent) :-
     consult_card_unanswered(Ask, Agent),
     consult_card_escalated(Ask, Agent).
 consult_settled(Ask, Agent) :- consult_escalates(Ask, Agent).
 consult_settled(Ask, Agent) :- consult_knowledge_suffices(Ask, Agent).
+consult_settled(Ask, Agent) :- consult_provider_down(Ask, Agent).
 
 consult_route(Ask, Agent, /consult) :-
     consult_ask(Ask, Agent, _),

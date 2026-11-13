@@ -118,3 +118,71 @@ func TestConsultRoute_AnUnansweredQuestionEscalatesThenStaysOpen(t *testing.T) {
 		t.Fatalf("a question unanswered under the stronger profile was asked again (%d call(s)):\n%s", c.calls(), open)
 	}
 }
+
+// A consultation that failed on a provider outage is not asked again on the
+// turn's later steps, whatever files they are on: the step reads why instead.
+// With a stronger profile configured, the outage escalates once, and a
+// failure there too settles it. A failure that is not the provider's (a
+// timeout of the consultation itself) still follows the per-question ladder.
+func TestConsultRoute_AProviderOutageIsNotAskedAgainThisTurn(t *testing.T) {
+	e, ws := routeFixture(t)
+	for _, f := range []string{"b.go", "c.go"} {
+		if err := os.WriteFile(filepath.Join(ws, f), []byte("package a\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outage := errors.New(`LLM generation failed: meta credential "muse1": provider request failed with status 503`)
+	need := func(file string) experts.Selection {
+		return experts.Selection{Needs: []experts.Need{{Agent: "leadexpert", Spawn: experts.SpawnLead, Files: []string{file}}}}
+	}
+	step := func(e *Executor, turn *ExecutionResult, file string) string {
+		return e.withExpertConsultations(context.Background(), "turn prompt", perception.Intent{Verb: "/fix", Target: file}, "fix "+file, need(file), turn, nil)
+	}
+
+	c := &scriptedConsultant{outcomes: []error{outage}}
+	e.SetExpertConsultant(c)
+	turn := &ExecutionResult{}
+	step(e, turn, "a.go")
+	second := step(e, turn, "b.go")
+	if c.calls() != 1 || !strings.Contains(second, "provider error (transient)") {
+		t.Fatalf("a later step asked the agent again through the same outage (%d call(s)):\n%s", c.calls(), second)
+	}
+	if fresh := step(e, &ExecutionResult{}, "b.go"); c.calls() != 2 || !strings.Contains(fresh, "ROUTE_ADVICE") {
+		t.Fatalf("a new turn inherited the outage (%d call(s)):\n%s", c.calls(), fresh)
+	}
+
+	esc, _ := routeFixture(t)
+	for _, f := range []string{"b.go", "c.go"} {
+		if err := os.WriteFile(filepath.Join(esc.config.WorkspaceRoot, f), []byte("package a\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	esc.SetConsultEscalation(func(ctx context.Context) context.Context {
+		return types.WithModelName(ctx, "configured-stronger-model")
+	})
+	ec := &scriptedConsultant{outcomes: []error{outage, outage}}
+	esc.SetExpertConsultant(ec)
+	turn = &ExecutionResult{}
+	step(esc, turn, "a.go")
+	step(esc, turn, "b.go")
+	if ec.calls() != 2 || ec.models[1] != "configured-stronger-model" {
+		t.Fatalf("the outage did not escalate once: models %q", ec.models)
+	}
+	third := step(esc, turn, "c.go")
+	if ec.calls() != 2 || !strings.Contains(third, "not asked again this turn") {
+		t.Fatalf("an agent failed under both profiles was asked a third time (%d call(s)):\n%s", ec.calls(), third)
+	}
+
+	nc, _ := routeFixture(t)
+	if err := os.WriteFile(filepath.Join(nc.config.WorkspaceRoot, "b.go"), []byte("package a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cc := &scriptedConsultant{outcomes: []error{errors.New("consultation produced no plan")}}
+	nc.SetExpertConsultant(cc)
+	turn = &ExecutionResult{}
+	step(nc, turn, "a.go")
+	step(nc, turn, "b.go")
+	if cc.calls() != 2 {
+		t.Fatalf("a failure that is not the provider's silenced the agent for the turn (%d call(s))", cc.calls())
+	}
+}

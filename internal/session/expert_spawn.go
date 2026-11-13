@@ -91,7 +91,7 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 	if len(spawns) == 0 {
 		return systemPrompt
 	}
-	plans := e.routeConsultations(spawns, intent.Verb, input, sel.Complexity, delivered)
+	plans := e.routeConsultations(spawns, intent.Verb, input, sel.Complexity, delivered, result)
 	consultant := e.consultant()
 	workspace := e.workspaceForVerification()
 	results := make([]expertConsultation, len(plans))
@@ -134,6 +134,11 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 			cards[i] = expertCard{Agent: plan.need.Agent, Mode: plan.need.Spawn, Technologies: plan.need.Technologies, Files: plan.need.Files,
 				Disposition: cardUnresolved, Route: routeUnresolved,
 				Body: "Left open: this question went unanswered, also under the stronger consultation profile, on these same files. It is not asked again until they change."}
+		case routeUnavailable:
+			f := result.consultProviderFailed[experts.AgentKey(plan.need.Agent)]
+			cards[i] = expertCard{Agent: plan.need.Agent, Mode: plan.need.Spawn, Technologies: plan.need.Technologies, Files: plan.need.Files,
+				Disposition: cardUnavailable, Route: routeUnavailable,
+				Body: fmt.Sprintf("Not consulted: its consultation failed earlier this turn on a provider error (%s) under every consultation profile there is, so it is not asked again this turn.", f.class)}
 		default:
 			bought++
 			cards[i] = newExpertCard(r)
@@ -144,6 +149,7 @@ func (e *Executor) withExpertConsultations(ctx context.Context, systemPrompt str
 			}
 			if r.err != nil {
 				logging.Get(logging.CategorySession).Warn("shard agent %s consultation failed: %v", r.need.Agent, r.err)
+				result.noteProviderFailure(r.need.Agent, r.err, plan.route == routeEscalate)
 			}
 			e.consultAttempts.put(plan.key, consultAttempt{
 				disposition: cards[i].Disposition, before: plan.before, after: r.after,

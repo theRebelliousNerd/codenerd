@@ -81,9 +81,17 @@ Decl expert_task_extension(Task, File, Ext) bound [/string, /string, /string].
 Decl expert_task_file(Task, File) bound [/string, /string].
 
 # task_technology(Task, File, Technology, Via) - a technology a task file uses.
-# Via: /language (the file's language) or /import (an import under a
-# technology_import_prefix).
+# Via: /language (the file's language), /import (an import of a framework
+# technology) or /host_import (an import of a language technology's host
+# library from another language, e.g. mangle-go from Go).
 Decl task_technology(Task, File, Technology, Via) bound [/string, /string, /name, /name].
+
+# technology_is_language(Technology) - the extension table names it a language.
+Decl technology_is_language(Technology) bound [/name].
+
+# import_evidence(Technology, Via) - what an import of the technology is
+# evidence of: /import or /host_import.
+Decl import_evidence(Technology, Via) bound [/name, /name].
 
 # reads_code_verb(Verb) - a conversational verb whose answer still reads the
 # target's code (explaining a policy file needs the engine's rules).
@@ -209,6 +217,11 @@ Decl consult_file_observation(Ask, Agent, File, Phase, Status, Digest) bound [/s
 # consult_escalation_available(Ask) - the stronger consultation profile is
 # configured (shard_profiles.consultation_escalation).
 Decl consult_escalation_available(Ask) bound [/string].
+# consult_provider_failed(Ask, Agent, Profile) - one of the agent's
+# consultations this turn ended on a provider error that asking again will
+# meet again (an outage, a rate limit, rejected credentials), under Profile:
+# /ordinary or /escalated (the stronger consultation profile).
+Decl consult_provider_failed(Ask, Agent, Profile) bound [/string, /name, /name].
 
 # Derived.
 Decl consult_ask_scoped(Ask, Agent) bound [/string, /name].
@@ -218,8 +231,10 @@ Decl consult_card_unanswered(Ask, Agent) bound [/string, /name].
 Decl consult_escalates(Ask, Agent) bound [/string, /name].
 Decl consult_knowledge_suffices(Ask, Agent) bound [/string, /name].
 Decl consult_settled(Ask, Agent) bound [/string, /name].
+Decl consult_provider_down(Ask, Agent) bound [/string, /name].
+Decl consult_left_open(Ask, Agent) bound [/string, /name].
 # consult_route(Ask, Agent, Route) - how the consultation is settled:
-# /knowledge, /escalate, /consult or /unresolved. Consumer: internal/session
+# /knowledge, /escalate, /consult, /unresolved or /unavailable. Consumer: internal/session
 # (Executor.withExpertConsultations).
 Decl consult_route(Ask, Agent, Route) bound [/string, /name, /name].
 
@@ -231,7 +246,7 @@ Decl consult_route(Ask, Agent, Route) bound [/string, /name, /name].
 
 # turn_expert_card(Turn, Card, Agent, Mode, Disposition) - a consultation
 # this turn settled: the agent, its spawn mode (/lead, /advise) and how it
-# ended (/answered, /failed, /empty, /knowledge, /unresolved). Producer:
+# ended (/answered, /failed, /empty, /knowledge, /unresolved, /unavailable). Producer:
 # internal/session (Executor.recordCards).
 Decl turn_expert_card(Turn, Card, Agent, Mode, Disposition) bound [/name, /number, /name, /name, /name].
 

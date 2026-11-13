@@ -14,6 +14,7 @@ import (
 
 	"codenerd/internal/experts"
 	"codenerd/internal/logging"
+	"codenerd/internal/perception"
 	"codenerd/internal/prompt"
 	"codenerd/internal/types"
 )
@@ -34,7 +35,72 @@ const (
 	routeEscalate   = "/escalate"
 	routeConsult    = "/consult"
 	routeUnresolved = "/unresolved"
+	// routeUnavailable: the agent's consultation failed on a provider error
+	// earlier this turn, under every profile there is to ask it under.
+	routeUnavailable = "/unavailable"
 )
+
+// consultProviderFailure is how an agent's consultations ended on provider
+// errors this turn: under the ordinary profile, under the stronger one, and
+// the last failure's class (perception.ClassifyProviderFailure).
+type consultProviderFailure struct {
+	class               perception.ProviderFailureClass
+	ordinary, escalated bool
+}
+
+// providerFailureRecurs reports whether err is a provider failure that
+// asking again in the same turn will meet again: an outage, a rate limit or
+// rejected credentials. A canceled call, a malformed request and anything
+// the adapter did not classify are not.
+func providerFailureRecurs(err error) (perception.ProviderFailureClass, bool) {
+	class := perception.ClassifyProviderFailure(err)
+	switch class {
+	case perception.FailureTransient, perception.FailureRateLimited, perception.FailureAuth:
+		return class, true
+	}
+	return class, false
+}
+
+// noteProviderFailure records a consultation's provider failure on the turn.
+func (r *ExecutionResult) noteProviderFailure(agent string, err error, escalated bool) {
+	class, ok := providerFailureRecurs(err)
+	if r == nil || !ok {
+		return
+	}
+	if r.consultProviderFailed == nil {
+		r.consultProviderFailed = map[string]consultProviderFailure{}
+	}
+	key := experts.AgentKey(agent)
+	f := r.consultProviderFailed[key]
+	f.class = class
+	if escalated {
+		f.escalated = true
+	} else {
+		f.ordinary = true
+	}
+	r.consultProviderFailed[key] = f
+}
+
+// providerFailureFacts are the turn's recorded provider failures of agent,
+// as consult_provider_failed(Ask, Agent, Profile), one per profile.
+func (r *ExecutionResult) providerFailureFacts(ask string, agent string) []types.Fact {
+	if r == nil {
+		return nil
+	}
+	f, ok := r.consultProviderFailed[experts.AgentKey(agent)]
+	if !ok {
+		return nil
+	}
+	atom := experts.AgentAtom(agent)
+	var facts []types.Fact
+	if f.ordinary {
+		facts = append(facts, types.Fact{Predicate: "consult_provider_failed", Args: []any{ask, atom, types.MangleAtom("/ordinary")}})
+	}
+	if f.escalated {
+		facts = append(facts, types.Fact{Predicate: "consult_provider_failed", Args: []any{ask, atom, types.MangleAtom("/escalated")}})
+	}
+	return facts
+}
 
 // consultHistory holds attempt outcomes, never answer bodies. Task clones
 // share it so policy can escalate failures without reusing completed advice.
@@ -149,7 +215,7 @@ type consultPlan struct {
 // routeConsultations asks the kernel the route of each consultation. A
 // kernel that cannot be asked routes every one to an ordinary consultation,
 // which is what the turn did before the ladder existed.
-func (e *Executor) routeConsultations(spawns []experts.Need, verb, input, complexity string, delivered map[string]int) []consultPlan {
+func (e *Executor) routeConsultations(spawns []experts.Need, verb, input, complexity string, delivered map[string]int, turn *ExecutionResult) []consultPlan {
 	workspace := e.workspaceForVerification()
 	ask := fmt.Sprintf("consult_ask_%d", consultAskSeq.Add(1))
 	plans := make([]consultPlan, len(spawns))
@@ -172,6 +238,7 @@ func (e *Executor) routeConsultations(spawns []experts.Need, verb, input, comple
 		for _, file := range need.Files {
 			facts = append(facts, types.Fact{Predicate: "consult_ask_file", Args: []any{ask, agent, file}})
 		}
+		facts = append(facts, turn.providerFailureFacts(ask, need.Agent)...)
 		facts = append(facts, consultObservationFacts(ask, agent, "/current", plans[i].before)...)
 		if cached, ok := e.consultAttempts.get(key); ok {
 			facts = append(facts, types.Fact{Predicate: "consult_card_cached", Args: []any{ask, agent, types.MangleAtom(cached.disposition)}})

@@ -1091,6 +1091,11 @@ type ExecutionResult struct {
 	// files its cards do not cover.
 	expertCards      []expertCard
 	consultedExperts map[string]map[string]bool
+	// consultProviderFailed holds, per agent key, the provider failure that
+	// ended one of its consultations this turn (consult_provider_failed,
+	// policy/shard_experts.mg): its later steps do not ask it again under
+	// the profile that failed.
+	consultProviderFailed map[string]consultProviderFailure
 	// promptCards is how many of expertCards the turn's own system prompt
 	// carries; those after it were bought by planned steps (repairCards).
 	// repairs numbers the repairs that asked for their cards.

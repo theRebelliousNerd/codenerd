@@ -34,6 +34,9 @@ const (
 	// cardUnresolved: not consulted, the question is left open
 	// (routeUnresolved).
 	cardUnresolved = "/unresolved"
+	// cardUnavailable: not consulted, a provider error ended its
+	// consultation earlier this turn (routeUnavailable).
+	cardUnavailable = "/unavailable"
 )
 
 // expertCard is one consultation's typed outcome.
