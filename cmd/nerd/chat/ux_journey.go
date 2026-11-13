@@ -42,26 +42,51 @@ func (m Model) recordUXMetric(metric string) {
 	}
 }
 
-// openSessionRecord marks the start of a chat session, after the preferences
-// migration ran: it reloads the preferences the migration may have rewritten
-// (the boot-time copy predates it, and saving it would undo the migration),
-// counts the session, and opens the session in the audit trail.
-func (m Model) openSessionRecord(migration *ux.MigrationResult, migErr error) Model {
+// sessionOpening is the disk half of opening a session record, done off the
+// Update thread (checkFirstRun): the preferences migration (an existing user
+// only), the reload of what it may have rewritten -- the boot-time copy
+// predates it, and saving that would undo the migration -- and the session
+// counted and saved. Live 2026-11-12 the handler that did this on the Update
+// thread took 200ms.
+type sessionOpening struct {
+	migration *ux.MigrationResult
+	migErr    error
+	loadErr   error
+	recordErr error
+}
+
+func openPreferences(workspace string, prefs *ux.PreferencesManager, migrate bool) sessionOpening {
+	var o sessionOpening
+	if migrate {
+		o.migration, o.migErr = ux.MigratePreferences(workspace)
+	}
+	if prefs != nil {
+		if o.loadErr = prefs.Load(); o.loadErr == nil {
+			o.recordErr = prefs.RecordSessionStart()
+		}
+	}
+	return o
+}
+
+// openSessionRecord marks the start of a chat session once its preferences
+// were opened (openPreferences): it says what the migration and the reload
+// came to, and opens the session in the audit trail.
+func (m Model) openSessionRecord(o sessionOpening) Model {
 	log := logging.Get(logging.CategorySession)
 	switch {
-	case migErr != nil:
-		log.Warn("preferences migration failed: %v", migErr)
-	case migration != nil && migration.WasMigrated:
+	case o.migErr != nil:
+		log.Warn("preferences migration failed: %v", o.migErr)
+	case o.migration != nil && o.migration.WasMigrated:
 		log.Info("preferences migrated %q -> %q; kept %v; defaults %v",
-			migration.FromVersion, migration.ToVersion, migration.PreservedData, migration.DefaultsApplied)
+			o.migration.FromVersion, o.migration.ToVersion, o.migration.PreservedData, o.migration.DefaultsApplied)
 	}
 
 	if m.preferencesMgr != nil {
-		if err := m.preferencesMgr.Load(); err != nil {
-			log.Warn("preferences reload after migration failed; session metrics will not be recorded: %v", err)
+		if o.loadErr != nil {
+			log.Warn("preferences reload after migration failed; session metrics will not be recorded: %v", o.loadErr)
 			m.preferencesMgr = nil
-		} else if err := m.preferencesMgr.RecordSessionStart(); err != nil {
-			log.Warn("session start not recorded in preferences: %v", err)
+		} else if o.recordErr != nil {
+			log.Warn("session start not recorded in preferences: %v", o.recordErr)
 		}
 	}
 	logging.AuditWithSession(m.sessionID).SessionStart(m.sessionID)

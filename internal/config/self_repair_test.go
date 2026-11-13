@@ -22,6 +22,7 @@ func TestLoggingParams_SelfRepairKnobs(t *testing.T) {
 		"/logging_self_repair_verify_window_sec":  DefaultSelfRepairVerifyWindowSec,
 		"/logging_self_optimize_min_count":        DefaultSelfOptimizeMinCount,
 		"/logging_self_repair_no_defect_regrowth": DefaultSelfRepairNoDefectRegrowth,
+		"/logging_self_repair_fix_budget_sec":     DefaultSelfRepairFixBudgetSec,
 	} {
 		if got, ok := def[key]; !ok || got != want {
 			t.Errorf("default %s = %d (present %v), want %d", key, got, ok, want)

@@ -69,13 +69,23 @@ func (loop *workingLoop) recordSnapshot(key, path, text string) {
 // returns how many it collapsed and the characters that freed. The latest
 // snapshot of each path is never touched.
 func (loop *workingLoop) collapseSupersededSnapshots() (collapsed, freed int) {
+	return loop.collapseSuperseded(func(string) bool { return true })
+}
+
+// collapseSupersededSnapshotsAt collapses, the same way, only the superseded
+// snapshots riding the message at key: a retired repair payload's turn.
+func (loop *workingLoop) collapseSupersededSnapshotsAt(key string) (collapsed, freed int) {
+	return loop.collapseSuperseded(func(k string) bool { return k == key })
+}
+
+func (loop *workingLoop) collapseSuperseded(at func(key string) bool) (collapsed, freed int) {
 	latest := make(map[string]int, len(loop.snapshots))
 	for i, s := range loop.snapshots {
 		latest[s.path] = i
 	}
 	for i := range loop.snapshots {
 		s := &loop.snapshots[i]
-		if s.collapsed || latest[s.path] == i {
+		if s.collapsed || latest[s.path] == i || !at(s.key) {
 			continue
 		}
 		riding := loop.appended[s.key]

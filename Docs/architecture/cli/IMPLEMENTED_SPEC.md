@@ -601,7 +601,7 @@ recovery. Their execution remains pending.
 Spec: [08-AUTONOMOUS-SELF-REPAIR.md](08-AUTONOMOUS-SELF-REPAIR.md); gaps
 GAP-CLI-SELF-REPAIR-01..08 and GAP-CLI-SELF-DIAGNOSE-ROUTE.
 
-With the `debug_self` logging key on, `selfRepairStep` (`cmd/nerd/chat/self_repair.go:159`)
+With the `debug_self` logging key on, `selfRepairStep` (`cmd/nerd/chat/self_repair.go:171`)
 runs when a turn or background job settles and on an idle timer. It syncs the
 problems log, the run's timings (`internal/problemlog/timing.go`) and the repair
 ledger (`internal/problemlog/repair.go`) into the kernel, adopts the derived
@@ -614,9 +614,9 @@ chain step with a preset intent (`cmd/nerd/chat/self_diagnosis_verdict.go:280`),
 which the work mode admits, proposes or holds; a target judged to have no defect
 settles in the ledger without a fix turn and without counting as a failure.
 A verified turn that changed source goes through `rebuildAndInstall`
-(`cmd/nerd/chat/self_restart.go:448`): build aside, self-check, rename. The
+(`cmd/nerd/chat/self_restart.go:460`): build aside, self-check, rename. The
 restart writes running background jobs and queued turns to
-the restore state; `resumeRestoredWork` (`cmd/nerd/chat/self_restart.go:378`)
+the restore state; `resumeRestoredWork` (`cmd/nerd/chat/self_restart.go:390`)
 starts them again in the new process, which takes `pending_restart` attempts
 to `verifying` by loading the ledger.
 
@@ -627,5 +627,12 @@ A fix chain in yolo runs under a write journal and a fix window. `settleFixTurn`
 restoring only that fix's writes, and saves its diff and failing tests under
 `.nerd/self_repair/attempts/` for the retry. Problems logged only inside a fix
 window are the attempt's record and are held
-(`internal/core/defaults/policy/self_repair.mg:178`). The optimize lane
+(`internal/core/defaults/policy/self_repair.mg:186`). The optimize lane
 ranks timings taken after the startup scan.
+
+An unattended fix chain is stopped when the kernel derives it over budget
+(`internal/core/defaults/policy/self_repair.mg:286`; asked by
+`checkFixBudgetCmd`, `cmd/nerd/chat/self_repair_budget.go:41`), undone and
+recorded `over_budget`. The self-repair look runs as a plan made in a command
+and landed on the Update thread (`cmd/nerd/chat/self_repair_plan.go:117`,
+`:206`). Neither has run in a live session yet.

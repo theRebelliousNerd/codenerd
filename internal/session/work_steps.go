@@ -499,6 +499,17 @@ func (e *Executor) assertPlannedStepFileNet(turn types.MangleAtom, steps []workS
 // commit retry has not been spent. A failed query is not a retry — deciding
 // one here would be a second copy of the rule.
 func (e *Executor) stepCommitRetry(turn types.MangleAtom, step int) (bool, error) {
+	return e.stepNextActionIs(turn, step, "/retry_commit")
+}
+
+// stepPlanHalt asks the policy whether the plan stops at this step
+// (step_next_action /halt_plan): it ended in an execution error and wrote
+// nothing after its retry.
+func (e *Executor) stepPlanHalt(turn types.MangleAtom, step int) (bool, error) {
+	return e.stepNextActionIs(turn, step, "/halt_plan")
+}
+
+func (e *Executor) stepNextActionIs(turn types.MangleAtom, step int, want string) (bool, error) {
 	rows, err := e.kernel.Query("step_next_action")
 	if err != nil {
 		return false, fmt.Errorf("step_next_action: %w", err)
@@ -512,7 +523,7 @@ func (e *Executor) stepCommitRetry(turn types.MangleAtom, step int) (bool, error
 		if !ok || !actionOK || n != int64(step) {
 			continue
 		}
-		if types.ExtractString(action) == "/retry_commit" {
+		if types.ExtractString(action) == want {
 			return true, nil
 		}
 	}
@@ -906,6 +917,7 @@ func (e *Executor) runPlannedSteps(
 		stepCtx.IntentTarget = step.File
 		writesBefore, callsBefore := result.WriteToolEffects, result.ToolCallsExecuted
 		stepNum := i + 1
+		stepErrored := false
 		sessionlog.EmitLiveProgress(ctx, sessionlog.LiveEvent{Kind: "step", Text: fmt.Sprintf("Step %d/%d: %s — %s", stepNum, len(steps), step.File, step.Change)})
 
 		// The window is compiled for THIS step, when the step starts: the
@@ -923,6 +935,7 @@ func (e *Executor) runPlannedSteps(
 			}
 			step.Note = err.Error()
 			logging.Get(logging.CategorySession).Warn("Step %d/%d (%s) ended in error: %v", stepNum, len(steps), step.File, err)
+			stepErrored = true
 		}
 		passCalls := result.ToolCallsExecuted - callsBefore
 		if recErr := e.recordStepPass(turn, stepNum, step.File, result.WriteToolEffects-writesBefore, passCalls); recErr != nil {
@@ -951,6 +964,7 @@ func (e *Executor) runPlannedSteps(
 				}
 				step.Note = retryErr.Error()
 				logging.Get(logging.CategorySession).Warn("Step %d/%d (%s) retry ended in error: %v", stepNum, len(steps), step.File, retryErr)
+				stepErrored = true
 			}
 			if retried != nil {
 				resp = retried
@@ -981,6 +995,32 @@ func (e *Executor) runPlannedSteps(
 			}
 		}
 		logging.Session("Step %d/%d %s: edited=%v, %d tool call(s)", stepNum, len(steps), step.File, step.Edited, step.Calls)
+		if stepErrored && i+1 < len(steps) {
+			if !e.assertTurnFact(types.Fact{Predicate: "step_errored", Args: []any{turn, int64(stepNum)}}) {
+				result.StepReport = workStepReport(steps, beyond)
+				return last, toolErrs, fmt.Errorf("step %d (%s): the step's error could not be recorded", stepNum, step.File)
+			}
+			halt, askErr := e.stepPlanHalt(turn, stepNum)
+			if askErr != nil {
+				result.StepReport = workStepReport(steps, beyond)
+				return last, toolErrs, fmt.Errorf("step %d (%s): %w", stepNum, step.File, askErr)
+			}
+			if halt {
+				// The steps after it stay owed, numbered as planned.
+				rest := append([]workStep(nil), steps[i+1:]...)
+				for j, s := range rest {
+					if !e.assertTurnFact(types.Fact{Predicate: "step_plan_remaining", Args: []any{turn, int64(stepNum + j + 1), s.File}}) {
+						result.StepReport = workStepReport(steps, beyond)
+						return last, toolErrs, fmt.Errorf("step %d (%s): the remaining step could not be recorded", stepNum+j+1, s.File)
+					}
+				}
+				logging.Get(logging.CategorySession).Warn(
+					"Step %d/%d (%s) ended in error and made no edit; the %d step(s) after it are not run: %s",
+					stepNum, len(steps), step.File, len(rest), step.Note)
+				steps, beyond = steps[:i+1], append(rest, beyond...)
+				break
+			}
+		}
 	}
 	if last == nil {
 		last = &types.LLMToolResponse{Text: workStepReport(steps, beyond)}

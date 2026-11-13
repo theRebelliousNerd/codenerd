@@ -63,6 +63,11 @@ type LoggingConfig struct {
 	// must pass before it replaces the running one. Default
 	// DefaultSelfRepairCheckTimeoutSec.
 	SelfRepairCheckTimeoutSec int `yaml:"self_repair_check_timeout_sec" json:"self_repair_check_timeout_sec,omitempty"`
+	// SelfRepairFixBudgetSec is how long an unattended fix chain may run,
+	// from its first step, before the kernel derives that it is over budget
+	// and it is stopped, undone and recorded. Default
+	// DefaultSelfRepairFixBudgetSec.
+	SelfRepairFixBudgetSec int `yaml:"self_repair_fix_budget_sec" json:"self_repair_fix_budget_sec,omitempty"`
 	// SessionTTL is how long a session folder (.nerd/sessions/<id>/) is kept
 	// after its last activity, as a duration string ("14d", "36h"). Unset keeps
 	// DefaultSessionTTL; "0" or "off" keeps every session forever. Expired
@@ -120,6 +125,7 @@ const (
 	DefaultSelfOptimizeMinCount       = 20
 	DefaultSelfRepairCheckTimeoutSec  = 300
 	DefaultSelfRepairNoDefectRegrowth = 2
+	DefaultSelfRepairFixBudgetSec     = 1500
 )
 
 // orDefault is v when the config set it, else def.
@@ -151,6 +157,7 @@ func (c *LoggingConfig) Params() []Param {
 		{Key: "/logging_self_repair_verify_window_sec", Value: int64(orDefault(l.SelfRepairVerifyWindowSec, DefaultSelfRepairVerifyWindowSec))},
 		{Key: "/logging_self_optimize_min_count", Value: int64(orDefault(l.SelfOptimizeMinCount, DefaultSelfOptimizeMinCount))},
 		{Key: "/logging_self_repair_no_defect_regrowth", Value: int64(c.SelfRepairNoDefectRegrowthFactor())},
+		{Key: "/logging_self_repair_fix_budget_sec", Value: int64(orDefault(l.SelfRepairFixBudgetSec, DefaultSelfRepairFixBudgetSec))},
 	}
 }
 
@@ -171,6 +178,15 @@ func (c *LoggingConfig) SelfRepairPoll() time.Duration {
 		v = c.SelfRepairPollSec
 	}
 	return time.Duration(orDefault(v, DefaultSelfRepairPollSec)) * time.Second
+}
+
+// SelfRepairFixBudget is how long an unattended fix chain may run. Nil-safe.
+func (c *LoggingConfig) SelfRepairFixBudget() time.Duration {
+	v := 0
+	if c != nil {
+		v = c.SelfRepairFixBudgetSec
+	}
+	return time.Duration(orDefault(v, DefaultSelfRepairFixBudgetSec)) * time.Second
 }
 
 // SelfRepairCheckTimeout bounds each self-check step of a rebuilt binary.

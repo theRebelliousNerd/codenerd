@@ -437,6 +437,22 @@ Decl working_evict(Call) bound [/string].
 working_evict(Call) :- working_drop(Call).
 working_evict(Call) :- working_shed(Call).
 
+# Repair payloads. A repair round's prompt -- the failing output, the tests and
+# the diff one attempt was sent -- rides a user turn of the ledger, not a tool
+# result; Go asserts working_payload(ID) for those rows. Every payload is one
+# kind of non-file observation, so each supersedes the one before
+# (working_superseded: one entity, one revision, one kind, a later step). A
+# superseded payload is retired at once, behind its recall handle, without
+# waiting for a compaction and without starting an epoch: the newer payload
+# holds the failure the round acts on, with a summary of every attempt before
+# it, and the older one only repeated its predecessor's failure on every later
+# call. Live 2026-11-12: one fix turn's three repair attempts averaged ~96k
+# input tokens a call, every earlier prompt resent whole.
+Decl working_payload(ID) bound [/string].
+Decl working_retire(Call) descr [doc("A ledger row holding a repair payload a later one supersedes: the request carries its recall handle instead.")].
+working_retire(Call) :-
+    working_ledger(Call, ID, _, _), working_payload(ID), working_superseded(ID).
+
 # Restatement. An observation still in the ledger whose file changed after it
 # was made is not rewritten -- that would break the cache from its round on --
 # and is not left standing as current either: the harness appends the current

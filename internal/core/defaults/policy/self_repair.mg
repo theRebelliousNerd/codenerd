@@ -18,7 +18,8 @@
 # fix turn that ends without an installed fix is /failed; one the user stopped
 # is /stopped. A diagnosis whose verdict (self_diagnosis.mg) found nothing of
 # codeNERD's to fix for a target settles it as /no_defect without a fix turn.
-# /failed and /regressed count toward Failures; /no_defect and /stopped do not.
+# /failed, /regressed and /over_budget count toward Failures; /no_defect and
+# /stopped do not.
 # A target that has failed logging.self_repair_max_failures times is left, as
 # recurse leaves a node that fails the same way twice.
 
@@ -37,6 +38,12 @@ Decl self_repair_fixing() bound [].
 # When each fix turn ran, from the ledger; a window still open ends at the
 # clock.
 Decl self_repair_fix_window(Job, StartUnix, EndUnix) bound [/string, /number, /number].
+# A fix window still open: its chain is running (asserted with the window).
+Decl self_repair_fix_open(Job, StartUnix) bound [/string, /number].
+# An unattended fix chain that has run past logging.self_repair_fix_budget_sec.
+# The chat stops it, undoes its writes and records the attempt /over_budget,
+# which counts toward Failures like /failed.
+Decl self_repair_fix_over_budget(Job) bound [/string].
 
 Decl self_timing_external(System) bound [/string].
 Decl self_repair_protected_path(Match) bound [/string].
@@ -68,6 +75,7 @@ Decl self_problem_from_repair(Signature, Job) bound [/string, /string].
 
 config_param_required(/logging, /logging_self_repair_enabled).
 config_param_required(/logging, /logging_self_repair_cooldown_sec).
+config_param_required(/logging, /logging_self_repair_fix_budget_sec).
 config_param_required(/logging, /logging_self_repair_max_failures).
 config_param_required(/logging, /logging_self_repair_max_jobs).
 config_param_required(/logging, /logging_self_repair_verify_window_sec).
@@ -268,6 +276,19 @@ self_repair_regressed(Target) :-
     config_param(/logging_self_optimize_min_count, Min),
     Count >= Min,
     Mean >= Base.
+
+# --- A fix chain that does not converge -----------------------------------------
+
+# Observed live 2026-11-12: a correct, tested change spent 55 minutes inside
+# its own turn's gates (a step plan that went on after a failed step,
+# specialist reviews, a pinning repair) with no verdict. An unattended chain
+# has a budget; past it the work is stopped and undone, and the retry is told.
+self_repair_fix_over_budget(Job) :-
+    self_repair_fix_open(Job, Start),
+    self_repair_clock(Now),
+    config_param(/logging_self_repair_fix_budget_sec, Budget),
+    Deadline = fn:plus(Start, Budget),
+    Now > Deadline.
 
 # --- What a self-repair may never touch ----------------------------------------
 

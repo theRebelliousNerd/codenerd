@@ -101,7 +101,8 @@ func (m Model) settleFixTurn() Model {
 	}
 	m.selfRepair.mu.Lock()
 	fixTurn, journal, job := m.selfRepair.fixTurn, m.selfRepair.journal, m.selfRepair.journalJob
-	m.selfRepair.fixTurn, m.selfRepair.journal, m.selfRepair.journalJob = 0, nil, ""
+	overBudget := job != "" && m.selfRepair.overBudgetJob == job
+	m.selfRepair.fixTurn, m.selfRepair.journal, m.selfRepair.journalJob, m.selfRepair.overBudgetJob = 0, nil, "", ""
 	m.selfRepair.mu.Unlock()
 	if fixTurn == 0 && journal == nil {
 		return m
@@ -139,6 +140,11 @@ func (m Model) settleFixTurn() Model {
 	if stopped {
 		status, note = problemlog.RepairStopped, "its fix turn was stopped by the user"
 	}
+	if overBudget && !installed {
+		// The chat stopped it, not the user: the budget's verdict stands.
+		stopped = false
+		status, note = problemlog.RepairOverBudget, fmt.Sprintf("its fix chain ran past its %s budget and was stopped", m.Config.Logging.SelfRepairFixBudget())
+	}
 	var n int
 	if job != "" {
 		n, err = ledger.EndJob(job, status, note, now)
@@ -154,6 +160,8 @@ func (m Model) settleFixTurn() Model {
 		}
 	}
 	switch {
+	case n > 0 && status == problemlog.RepairOverBudget:
+		m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair: the fix chain for %d target(s) ran past its %s budget; they are recorded as over budget, which counts as a failure.%s_", n, m.Config.Logging.SelfRepairFixBudget(), sentence(undoNote)))
 	case n > 0 && stopped:
 		m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair: you stopped the fix turn for %d target(s); they are recorded as stopped, not failed.%s_", n, sentence(undoNote)))
 	case n > 0:

@@ -27,9 +27,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// performSystemBoot boots the system off the Update thread. A boot that
+// resumes a restart's session (sessionID set) also reads that session's
+// conversation here, so the boot handler only appends it (applyRestore).
 func performSystemBoot(cfg *config.UserConfig, disableSystemShards []string, apiKey, workspace, sessionID string) tea.Cmd {
 	return func() tea.Msg {
-		return performSystemBootShared(cfg, disableSystemShards, apiKey, workspace, sessionID)
+		msg := performSystemBootShared(cfg, disableSystemShards, apiKey, workspace, sessionID)
+		if done, ok := msg.(bootCompleteMsg); ok && done.err == nil && sessionID != "" {
+			done.restored, done.restoredErr = session.LoadSessionHistory(workspace, sessionID)
+			return done
+		}
+		return msg
 	}
 }
 

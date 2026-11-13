@@ -51,15 +51,20 @@ const (
 	// kernel's self_diagnosis_no_defect), so no fix turn ran. Held until its
 	// evidence grows (self_repair.mg); not a failure.
 	RepairNoDefect RepairStatus = "no_defect"
+	// RepairOverBudget: its unattended fix chain ran past the configured
+	// budget (the kernel's self_repair_fix_over_budget) and was stopped and
+	// undone. Counts as a failure: a retry is told, and a target that keeps
+	// running over is left.
+	RepairOverBudget RepairStatus = "over_budget"
 )
 
 // RepairStatuses is every status, in lifecycle order.
 var RepairStatuses = []RepairStatus{RepairBeingFixed, RepairPendingRestart, RepairVerifying, RepairVerified,
-	RepairRegressed, RepairFailed, RepairStopped, RepairNoDefect}
+	RepairRegressed, RepairFailed, RepairStopped, RepairNoDefect, RepairOverBudget}
 
 // countsAsFailure reports the statuses that move a target toward being left.
 func (s RepairStatus) countsAsFailure() bool {
-	return s == RepairFailed || s == RepairRegressed
+	return s == RepairFailed || s == RepairRegressed || s == RepairOverBudget
 }
 
 // Repair phases while RepairBeingFixed.
@@ -118,10 +123,13 @@ type FixWindow struct {
 // for concurrent use: the chat's Update thread and the command goroutine that
 // installs a rebuilt binary both record into it.
 type RepairLedger struct {
-	mu       sync.Mutex
-	path     string
-	attempts map[string]*RepairAttempt
-	windows  []FixWindow
+	mu sync.Mutex
+	// replaceMu serializes ReplaceRepair's retract-then-assert into a kernel:
+	// two interleaved would leave both projections, and two clocks, standing.
+	replaceMu sync.Mutex
+	path      string
+	attempts  map[string]*RepairAttempt
+	windows   []FixWindow
 }
 
 const ledgerVersion = 1
@@ -362,7 +370,7 @@ func settle(a *RepairAttempt, status RepairStatus, note string, now time.Time) {
 func (l *RepairLedger) Annotate(job, note, diff string, failedTests []string) (int, error) {
 	n := 0
 	err := l.update(func(a *RepairAttempt) bool {
-		if a.Job != job || (a.Status != RepairFailed && a.Status != RepairStopped) {
+		if a.Job != job || (a.Status != RepairFailed && a.Status != RepairStopped && a.Status != RepairOverBudget) {
 			return false
 		}
 		if note != "" {
@@ -455,15 +463,19 @@ const (
 	RepairEvidencePredicate = "self_repair_no_defect_evidence"
 	RepairClockPredicate    = "self_repair_clock"
 	RepairWindowPredicate   = "self_repair_fix_window"
-	RepairFixingPredicate   = "self_repair_fixing"
-	RepairDuePredicate      = "self_repair_due"
-	RepairShardPredicate    = "self_repair_shard"
-	RepairVerifiedPredicate = "self_repair_verified"
-	RepairRegressedPred     = "self_repair_regressed"
+	// RepairFixOpenPredicate names a fix window still open: the chain runs.
+	RepairFixOpenPredicate = "self_repair_fix_open"
+	// RepairOverBudgetPredicate is derived: an open fix chain past its budget.
+	RepairOverBudgetPredicate = "self_repair_fix_over_budget"
+	RepairFixingPredicate     = "self_repair_fixing"
+	RepairDuePredicate        = "self_repair_due"
+	RepairShardPredicate      = "self_repair_shard"
+	RepairVerifiedPredicate   = "self_repair_verified"
+	RepairRegressedPred       = "self_repair_regressed"
 )
 
 // RepairPredicates are the base predicates ReplaceRepair writes.
-var RepairPredicates = []string{RepairAttemptPredicate, RepairBaselinePredicate, RepairEvidencePredicate, RepairClockPredicate, RepairWindowPredicate}
+var RepairPredicates = []string{RepairAttemptPredicate, RepairBaselinePredicate, RepairEvidencePredicate, RepairClockPredicate, RepairWindowPredicate, RepairFixOpenPredicate}
 
 // Facts projects the ledger as self_repair_attempt, self_repair_baseline and
 // self_repair_no_defect_evidence rows.
@@ -488,7 +500,8 @@ func (l *RepairLedger) Facts() []types.Fact {
 }
 
 // WindowFacts projects the fix windows as self_repair_fix_window rows; a
-// window still open ends now.
+// window still open ends now and is also a self_repair_fix_open row, which
+// the budget rule reads.
 func (l *RepairLedger) WindowFacts(now time.Time) []types.Fact {
 	if l == nil {
 		return nil
@@ -496,20 +509,29 @@ func (l *RepairLedger) WindowFacts(now time.Time) []types.Fact {
 	var out []types.Fact
 	for _, w := range l.FixWindows() {
 		end := w.EndUnix
-		if end == 0 {
+		open := end == 0
+		if open {
 			end = max(now.Unix(), w.StartUnix)
 		}
 		out = append(out, types.Fact{Predicate: RepairWindowPredicate, Args: []any{types.MangleString(w.Job), w.StartUnix, end}})
+		if open {
+			out = append(out, types.Fact{Predicate: RepairFixOpenPredicate, Args: []any{types.MangleString(w.Job), w.StartUnix}})
+		}
 	}
 	return out
 }
 
 // ReplaceRepair swaps the kernel's ledger facts and clock for the ledger's
 // current state at now. Every retraction error and the assert error come back
-// joined.
+// joined. Replaces of one ledger never interleave: the chat's Update thread,
+// its self-repair look and the rebuild goroutine all call it.
 func ReplaceRepair(k Kernel, l *RepairLedger, now time.Time) error {
 	if k == nil {
 		return errors.New("problemlog: nil Kernel")
+	}
+	if l != nil {
+		l.replaceMu.Lock()
+		defer l.replaceMu.Unlock()
 	}
 	var errs []error
 	for _, pred := range RepairPredicates {
@@ -523,6 +545,23 @@ func ReplaceRepair(k Kernel, l *RepairLedger, now time.Time) error {
 		errs = append(errs, fmt.Errorf("problemlog: assert %d self-repair facts: %w", len(facts), err))
 	}
 	return errors.Join(errs...)
+}
+
+// OverBudgetJobs asks the kernel which open fix chains have run past their
+// budget (self_repair_fix_over_budget), sorted.
+func OverBudgetJobs(k Querier) ([]string, error) {
+	rows, err := k.Query(RepairOverBudgetPredicate)
+	if err != nil {
+		return nil, fmt.Errorf("problemlog: query %s: %w", RepairOverBudgetPredicate, err)
+	}
+	var out []string
+	for _, f := range rows {
+		if len(f.Args) == 1 {
+			out = append(out, factString(f.Args[0]))
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // Due is one target the kernel derives as due, with its lane.

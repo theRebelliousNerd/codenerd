@@ -215,6 +215,10 @@ type Receipt struct {
 	// means the entry was invalidated. Empty when the request had no cacheable
 	// head at all.
 	Prefix string `json:"prefix,omitempty"`
+	// Composition is the request's input by part, in bytes, when the caller
+	// that assembled it measured it (a session working request); nil
+	// otherwise.
+	Composition *Composition `json:"composition_bytes,omitempty"`
 
 	// Estimated is what admission believed before the request went out.
 	Estimated Count `json:"estimated"`

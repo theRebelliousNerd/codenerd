@@ -946,8 +946,39 @@ verdict on the workspace, a repair round and a gate's FAILED line log at INFO.
 with their first pre-image on every exit path, so a caller can restore exactly
 what a chain of turns wrote and leave a file another writer changed since.
 
-Not built (GAP-SESSION-REPAIR-COST-01): the input size of each repair request is
-not logged, and each attempt's prompt (failing output, test source, budgeted
-diff) is appended to the turn's history and never replaced. One live repair
-turn measured 1.63M input tokens over 17 calls. Exit: a logged per-call size,
-and the repeated failing output measured and carried once.
+## What a working request is made of (GAP-SESSION-REPAIR-COST-01)
+
+Every working request logs its input by part at INFO and hands the same
+measurement to the broker, whose receipt records it beside the provider's token
+count (`Composition`, `internal/broker/composition.go:14`; assembled in
+`internal/session/request_composition.go`; shown by `nerd meter`). The parts are
+bytes, not tokens, and are labelled so: system prompt, tool catalog, prior
+turns, the task anchor, assistant turns, replayed reasoning, tool results,
+focus views, harness notes, and the repair payload.
+
+A repair round's prompt (failing output, test source, budgeted diff) is a
+working-ledger row of its own kind. The next round's payload supersedes it and
+the superseded one is retired at once behind its recall handle
+(`working_retire`, `internal/context/working_set.mg:453`), so a request
+carries the newest payload whole and a pointer for each earlier one, and the
+earlier ones stay recoverable through `recall_context`.
+TestRepairLoop_ASupersededPayloadIsRetiredAndRecallable and
+TestRepairLoop_RequestsDoNotGrowByEverySupersededPayload
+(`internal/session/repair_payload_test.go:49`, `:144`) hold both.
+
+Not built: these are measured with a scripted model. The live cost that
+prompted them (1.63M input tokens over 17 calls in one repair turn; 2.55M over
+32 calls in another) has not been re-measured on this build, and the step
+prompt itself is about 147-150k characters before any payload.
+
+## A plan halts at a step that errored and wrote nothing
+
+A planned step whose pass ended in an execution error and that has written
+nothing after its retry stops the plan: the kernel derives `/halt_plan`
+(`internal/core/defaults/policy/turn_steps.mg:97`), the executor asks
+(`stepPlanHalt`, `internal/session/work_steps.go:508`), and the steps after it
+stay owed as `step_plan_remaining`, so the verdict is incomplete without their
+work. A step that errors and then makes its edit on the retry goes on.
+TestRunPlannedSteps_AnErroredStepThatWroteNothingHaltsThePlan and
+TestRunPlannedSteps_AnErroredStepThatThenEditsGoesOn
+(`internal/session/work_steps_halt_test.go:38`, `:82`) hold both.

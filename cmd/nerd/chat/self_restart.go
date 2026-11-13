@@ -279,14 +279,19 @@ func (m Model) performRestart(exec selfrestart.ExecFunc) (Model, error) {
 // applyRestore resumes the session a restart handed over: its conversation,
 // work mode, brief, held work and draft, with a notice naming the builds and
 // what the restart interrupted. It runs once the boot (resumed under the same
-// session id) has wired the kernel.
-func (m Model) applyRestore() Model {
+// session id) has wired the kernel; history is that session's conversation,
+// which the boot command read off the Update thread (performSystemBoot), and
+// err why it could not be.
+func (m Model) applyRestore(history *session.SessionHistory, err error) Model {
 	st := m.restore
 	m.restore = nil
 	if st == nil {
 		return m
 	}
-	if history, err := session.LoadSessionHistory(m.workspace, st.SessionID); err == nil && len(history.Messages) > 0 {
+	if history == nil && err == nil {
+		err = fmt.Errorf("the boot read no conversation for it")
+	}
+	if err == nil && len(history.Messages) > 0 {
 		restored := make([]Message, 0, len(history.Messages))
 		for _, msg := range history.Messages {
 			restored = append(restored, Message{Role: msg.Role, Content: msg.Content, Time: msg.Time, Request: msg.Request, Answers: msg.Answers})

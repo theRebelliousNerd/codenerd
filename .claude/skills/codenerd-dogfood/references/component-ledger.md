@@ -6679,8 +6679,32 @@ Open, in order of what blocks a first verified repair:
 - A correct, tested change could not pass the turn's own gates in under an hour
   on a loaded host. No timeline of where attempt 3's time went exists yet, and
   there is no time or token budget on an autonomous fix turn.
-- The self-repair check runs on the TUI's Update thread (523 ms observed).
-  Unfinished work on branch `worktree-agent-a216645aa5422a606`, not verified.
+- The self-repair check ran on the TUI's Update thread (523 ms observed);
+  moved off it later that day, not yet observed live.
 - One fix turn cost 1.63M input tokens; per-request size is not logged.
 - Every fix so far targeted `internal/core`, where an edit selects about 6,000
   importer tests.
+
+## Where the third fix chain's hour went (2026-11-12, 19:06-20:02; read from its session log)
+
+| When | What | Cost |
+|---|---|---|
+| 19:06-19:13 | Provider 503s: step 1 (the source file) made no edit, a specialist consult failed | 7 min |
+| 19:13-19:29 | The plan went on to step 2 and wrote tests for the change step 1 never made; the turn ended unverified | 23 min, 1.55M input tokens |
+| 19:29-19:36 | Re-planned; both steps edited (three more consults failed on 503) | 7 min |
+| 19:36-19:41 | Its own tests failed once; one repair round converged | 5 min |
+| 19:43-19:53 | Two Mangle specialist reviews of a Go-only change, then an uplift round that broke the tests and was reverted | 10 min |
+| 19:53-20:02 | Pinning gate, a pinning repair, pinning again; unfinished when stopped | 9+ min |
+
+The change itself took about seven minutes. Built from this, without running
+codeNERD again: a plan halts at a step that errored and wrote nothing; an
+unattended fix chain has a kernel-derived wall-clock budget and is stopped,
+undone and recorded over budget; each working request records what it is made
+of; a superseded repair payload is carried as a recall pointer; the self-repair
+look no longer runs on the Update thread. None of these has been observed in a
+live session.
+
+Still open: specialist consults and reviews are dealt by the file's package,
+not by what the change touches; an added import runs every importer's tests;
+the pinning gate has no share of the budget; a green change cannot be parked as
+a candidate.

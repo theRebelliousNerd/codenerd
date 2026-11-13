@@ -68,6 +68,8 @@ turn_needs_step_plan(Turn) :-
 Decl step_execution(Turn, Step, File, Writes, Calls) bound [/name, /number, /string, /number, /number].
 Decl step_no_change_evidence(Turn, Step, Evidence) bound [/name, /number, /string].
 Decl step_retried(Turn, Step) bound [/name, /number].
+# A pass of the step ended in an execution error (asserted by the executor).
+Decl step_errored(Turn, Step) bound [/name, /number].
 Decl step_file_net(Turn, Step, File, Net) bound [/name, /number, /string, /name].
 
 Decl step_cover_candidate(Turn, Step, By) bound [/name, /number, /number].
@@ -84,6 +86,18 @@ Decl turn_has_unresolved_step(Turn) bound [/name].
 Decl turn_steps_verdict(Turn, Verdict) bound [/name, /name].
 
 step_has_retried(Turn, Step) :- step_retried(Turn, Step).
+
+# A step whose pass ended in an execution error (a provider failure, not the
+# model's choice) and that has written nothing after its retry decided
+# nothing: the steps planned after it assume its change exists. The plan stops
+# there and the steps after it stay owed (step_plan_remaining), so the verdict
+# is /incomplete without their work. Observed live 2026-11-12: step 1 of 2
+# failed on a provider 503 and made no edit; step 2 then spent 23 minutes and
+# 1.5M input tokens writing tests for code that did not exist.
+step_next_action(Turn, Step, /halt_plan) :-
+    step_errored(Turn, Step),
+    step_execution(Turn, Step, _, 0, _),
+    step_has_retried(Turn, Step).
 
 step_next_action(Turn, Step, /retry_commit) :-
     step_execution(Turn, Step, _, 0, _),

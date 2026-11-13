@@ -273,8 +273,9 @@ func TestRepairLedger_FixWindowsAndAnnotationsPersist(t *testing.T) {
 	if err := l.OpenFixWindow("job-1", time.Unix(120, 0)); err != nil {
 		t.Fatal(err)
 	}
-	if facts := l.WindowFacts(time.Unix(150, 0)); len(facts) != 1 || facts[0].Args[2] != int64(150) {
-		t.Fatalf("an open window's facts = %v, want it to end now", facts)
+	if facts := l.WindowFacts(time.Unix(150, 0)); len(facts) != 2 || facts[0].Args[2] != int64(150) ||
+		facts[1].Predicate != RepairFixOpenPredicate || facts[1].Args[1] != int64(120) {
+		t.Fatalf("an open window's facts = %v, want it to end now and be named open from its start", facts)
 	}
 	if _, err := l.EndJob("job-1", RepairFailed, "the fix turn ended", time.Unix(200, 0)); err != nil {
 		t.Fatal(err)

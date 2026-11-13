@@ -16,7 +16,7 @@ from the new process's own evidence. The kernel decides what is due; the chat ex
 ## Target behaviour
 
 1. **Trigger.** `self_repair_due(Target, Lane)` is derived
-   (`internal/core/defaults/policy/self_repair.mg:229-230`). The chat asks at a turn
+   (`internal/core/defaults/policy/self_repair.mg:237-238`). The chat asks at a turn
    boundary and on an idle timer, never through perception.
 2. **Two lanes.** `/repair`: every hot problem of the session's problems log that is not
    held. `/optimize`, once nothing is left to repair: the recurring operation that cost
@@ -49,7 +49,7 @@ from the new process's own evidence. The kernel decides what is due; the chat ex
    the call failed. A target at or below the no threshold settles as `no_defect`
    (`self_diagnosis.mg:58`): no fix turn, not a failure, and held until its count grows
    by the configured regrowth factor over what the diagnosis saw
-   (`self_repair_evidence_regrown`, `self_repair.mg:147`). With nothing due the user sees
+   (`self_repair_evidence_regrown`, `self_repair.mg:155`). With nothing due the user sees
    one line saying the diagnosis found nothing of codeNERD's to fix.
 8. **The fix step is a chain step.** It runs with a preset intent (`/fix`, or `/refactor`
    on the optimize lane) aimed at the files the diagnosis cites (`fixStep`,
@@ -62,7 +62,7 @@ from the new process's own evidence. The kernel decides what is due; the chat ex
 9. **Safety.** While a fix turn runs, `self_repair_fixing()` makes the constitution, the
    safety and permission policies, the write guards, the approval and work-mode code, the
    self-repair trigger itself and `nerd.md` `project_forbidden_path`
-   (`self_repair.mg:279-303`). The executor's write gate and `coder_edit_barred` both
+   (`self_repair.mg:300-324`). The executor's write gate and `coder_edit_barred` both
    refuse them.
 
 10. **A fix that is not installed is undone.** In yolo the fix chain runs under a write
@@ -76,9 +76,24 @@ from the new process's own evidence. The kernel decides what is due; the chat ex
     user approved in another work mode, is never undone.
 11. **A failed attempt's record is not a target.** A problem logged only inside fix
     windows is derived as the attempt's own record (`self_problem_from_repair`,
-    `self_repair.mg:178`) and held. A turn's verdict on the workspace (verification
+    `self_repair.mg:186`) and held. A turn's verdict on the workspace (verification
     failed, repair rounds, a gate's FAILED line) is logged at INFO: the turn already
     reports it, and it describes the edits, not a fault in codeNERD.
+
+12. **A fix chain has a budget.** An unattended fix chain that has run longer than its
+    budget (`SelfRepairFixBudgetSec`, `internal/config/logging.go:70`) is over budget: the
+    kernel derives it from the chain's open window and the clock
+    (`internal/core/defaults/policy/self_repair.mg:286`). The chat asks on the idle timer's
+    tick, off the Update thread (`checkFixBudgetCmd`, `cmd/nerd/chat/self_repair_budget.go:41`),
+    and stops the chain's turn as a user stop would (`handleFixOverBudget`, `:70`). The
+    settlement of item 10 then undoes its writes and saves the attempt, and the ledger
+    records `over_budget`, which counts toward the failure limit and is told to the retry.
+13. **The look never runs on the Update thread.** A self-repair look is three phases:
+    the guards and settlements on the Update thread; the evidence sync, the kernel's
+    verdicts and due targets and the job (the Jev triage included) in a command over a
+    snapshot (`planSelfRepair`, `cmd/nerd/chat/self_repair_plan.go:117`) that records
+    nothing; and the landing back on the Update thread (`landSelfRepairPlan`, `:206`),
+    which drops the plan if the user began something meanwhile. Never two plans in flight.
 
 ## Go / Mangle split
 
@@ -90,11 +105,12 @@ from the new process's own evidence. The kernel decides what is due; the chat ex
 | Whether the fix turn runs, and for which targets | `self_diagnosis.mg`, `jev_evidence.mg` (`self_diagnosis_fix_due`, `self_diagnosis_no_defect`) |
 | Which problems are an attempt's own record | `self_repair.mg` (`self_problem_from_repair`) over per-second occurrences (`self_problem_at`) and fix windows |
 | Undoing a fix that was not installed | Go: `WriteJournal` and `settleFixTurn` |
+| Whether an open fix chain is over budget | `self_repair.mg` (the over-budget rule over `self_repair_fix_open` and the clock) |
 | What a fix turn may not edit | `self_repair.mg` -> `project_forbidden_path` |
 | Measuring: problems log, timings, ledger, clock | `internal/problemlog/repair.go`, `timing.go` |
 | Asking, starting the job, recording outcomes | `cmd/nerd/chat/self_repair.go` |
-| Idleness (is anything of the user's in the way) | `cmd/nerd/chat/self_repair.go:149` (Go: UI state) |
-| Build, self-check, install, resume | `cmd/nerd/chat/self_restart.go:378`, `:448` |
+| Idleness (is anything of the user's in the way) | `cmd/nerd/chat/self_repair.go:155` (Go: UI state) |
+| Build, self-check, install, resume | `cmd/nerd/chat/self_restart.go:390`, `:460` |
 
 Knobs live in the logging section of `.nerd/config.json`: whether self-repair is disabled, its cooldown,
 failure limit, job limit, verify window, poll interval and self-check timeout, and the optimize
@@ -113,3 +129,9 @@ lane's minimum count (`SelfOptimizeMinCount`, `internal/config/logging.go:55`, a
   edits are not taken back out.
 - Task text for the diagnosis and fix steps is Go constants, not prompt atoms.
 - Each idle poll re-asserts the clock and ledger facts and re-evaluates.
+- A fix chain waiting between turns on an offered or held step is not cancelled by the
+  budget; it settles at its next boundary.
+- The budget is wall-clock only. A token budget needs the per-request sizes the session
+  now records (GAP-SESSION-REPAIR-COST-01) joined to the chain.
+- What made the third live fix chain slow is only partly addressed
+  (GAP-CLI-SELF-REPAIR-10).
