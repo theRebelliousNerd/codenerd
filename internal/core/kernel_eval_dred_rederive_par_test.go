@@ -157,7 +157,8 @@ func TestEvaluate_AGrownKernelIsMovedToAnIndexedStore(t *testing.T) {
 	if small {
 		t.Fatalf("a kernel holding %d facts is still on the unindexed store", held)
 	}
-	if got := len(rederiveRows(t, k, "rd_include")); got != indexedStoreMinFacts {
-		t.Fatalf("rd_include holds %d rows after the move, want %d", got, indexedStoreMinFacts)
+	// Both hubs are still targets: every dependent of each is included.
+	if got, want := len(rederiveRows(t, k, "rd_include")), 2*indexedStoreMinFacts; got != want {
+		t.Fatalf("rd_include holds %d rows after the move, want %d", got, want)
 	}
 }
