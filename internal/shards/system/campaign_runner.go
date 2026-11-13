@@ -369,7 +369,7 @@ func (s *CampaignRunnerShard) orchestratorConfig(workspace string, shardMgr *cor
 		Campaign:             appCfg.GetCampaignConfig(),
 		IntelligenceGatherer: intelligenceGatherer,
 		AdvisoryBoard:        campaign.NewShardAdvisoryBoard(consultationMgr),
-		EdgeCaseDetector:     campaign.NewEdgeCaseDetector(s.Kernel, worldScanner),
+		EdgeCaseDetector:     campaign.NewEdgeCaseDetector(s.Kernel, workspace),
 		NorthstarObserver:    northstar.BuildCampaignObserver(workspace, s.LLMClient, s.Kernel),
 		TaskExecutor:         s.TaskExecutor(),
 	}, nil

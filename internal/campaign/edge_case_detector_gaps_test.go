@@ -16,7 +16,7 @@ import (
 
 // TestEdgeCaseDetectorGap_AnalyzeFiles_CanceledContext (Vector 1: Empty/Nil Contexts)
 func TestEdgeCaseDetectorGap_AnalyzeFiles_CanceledContext(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
@@ -35,7 +35,7 @@ func TestEdgeCaseDetectorGap_AnalyzeFiles_CanceledContext(t *testing.T) {
 
 // TestEdgeCaseDetectorGap_AnalyzeFiles_EmptyIntelligence (Vector 1: Empty Intel)
 func TestEdgeCaseDetectorGap_AnalyzeFiles_EmptyIntelligence(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 
 	// Initialized but empty intelligence report
 	intel := &IntelligenceReport{
@@ -59,7 +59,7 @@ func TestEdgeCaseDetectorGap_AnalyzeFiles_EmptyIntelligence(t *testing.T) {
 // TestEdgeCaseDetectorGap_EmptyPathString (Vector 1: Empty Paths)
 // TestEdgeCaseDetectorGap_EmptyPathString (Vector 1: Empty Paths)
 func TestEdgeCaseDetectorGap_EmptyPathString(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 
 	paths := []string{""}
 	decisions, _ := detector.AnalyzeFiles(context.Background(), paths, nil)
@@ -71,7 +71,7 @@ func TestEdgeCaseDetectorGap_EmptyPathString(t *testing.T) {
 
 // TestEdgeCaseDetectorGap_TypeCoercion (Vector 2: Type Coercion)
 func TestEdgeCaseDetectorGap_TypeCoercion(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 
 	// Test NaN
 	_, ok := detector.parseNumber(math.NaN())
@@ -94,7 +94,7 @@ func TestEdgeCaseDetectorGap_TypeCoercion(t *testing.T) {
 
 // TestEdgeCaseDetectorGap_UnknownLanguage (Vector 3: Unknown Language)
 func TestEdgeCaseDetectorGap_UnknownLanguage(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 
 	lang := detector.detectLanguage("weird_file.mojo")
 	if lang != "unknown" {
@@ -139,14 +139,14 @@ func TestEdgeCaseDetectorGap_GodFile(t *testing.T) {
 	}
 
 	// Just verifying that logDecisionSummary handles extreme ImpactScore safely without logging 50k items
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 	// Shouldn't panic or freeze
 	detector.logDecisionSummary([]FileDecision{decision})
 }
 
 // TestEdgeCaseDetectorGap_Concurrency (Vector 4: Concurrency Safety)
 func TestEdgeCaseDetectorGap_Concurrency(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 
 	// Run 10 goroutines calling AnalyzeFiles with the same detector to check for race conditions
 	done := make(chan bool)

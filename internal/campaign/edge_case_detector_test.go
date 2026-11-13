@@ -11,7 +11,7 @@ import (
 
 func TestNewEdgeCaseDetector(t *testing.T) {
 	// Test with nil dependencies
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 	if detector == nil {
 		t.Fatal("NewEdgeCaseDetector returned nil")
 	}
@@ -49,7 +49,7 @@ func TestDefaultEdgeCaseConfig(t *testing.T) {
 }
 
 func TestEdgeCaseDetector_WithConfig(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 
 	customConfig := EdgeCaseConfig{
 		HighChurnRate:  20,
@@ -116,7 +116,7 @@ func TestFileDecision_Fields(t *testing.T) {
 }
 
 func TestEdgeCaseDetector_AnalyzeFiles_NilDependencies(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 
 	ctx := context.Background()
 	// AnalyzeFiles takes (ctx, paths, *IntelligenceReport)
@@ -280,7 +280,7 @@ func TestEdgeCaseAnalysis_FileCategories(t *testing.T) {
 // or cause ActionRefactorFirst permanently.
 
 func TestEdgeCaseDetector_DetectLanguage_Unknown(t *testing.T) {
-	d := NewEdgeCaseDetector(nil, nil)
+	d := NewEdgeCaseDetector(nil, "")
 
 	extensions := []string{".zig", ".mojo", ".xyz"}
 	for _, ext := range extensions {
@@ -302,7 +302,7 @@ func TestEdgeCaseDetector_DetectLanguage_Unknown(t *testing.T) {
 // Expected behavior: Should cleanly suggest ActionModularize without overflow in heuristics (e.g., complexity calc).
 
 func TestEdgeCaseDetector_AnalyzeFiles_EmptyPaths(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 	ctx := context.Background()
 
 	// Should skip the empty path and return no decisions
@@ -314,15 +314,9 @@ func TestEdgeCaseDetector_AnalyzeFiles_EmptyPaths(t *testing.T) {
 		t.Errorf("Expected 0 decisions for empty path, got %d", len(decisions))
 	}
 
-	// matchesPath
-	if detector.matchesPath("", "foo.go") {
-		t.Errorf("matchesPath should return false if candidate is empty")
-	}
-	if detector.matchesPath("foo.go", "") {
-		t.Errorf("matchesPath should return false if path is empty")
-	}
-	if detector.matchesPath("", "") {
-		t.Errorf("matchesPath should return false if both are empty")
+	// An empty path has no identity, so it can match no kernel row.
+	if id := detector.identity(""); id != "" {
+		t.Errorf("identity(\"\") = %q, want empty", id)
 	}
 
 	// detectLanguage
@@ -332,7 +326,7 @@ func TestEdgeCaseDetector_AnalyzeFiles_EmptyPaths(t *testing.T) {
 }
 
 func TestEdgeCaseDetector_AnalyzeFiles_ContextCancellation(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -347,11 +341,11 @@ func TestEdgeCaseDetector_AnalyzeFiles_ContextCancellation(t *testing.T) {
 }
 
 func TestEdgeCaseDetector_GatherMetrics_NilIntelligence(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 	ctx := context.Background()
 
 	decision := &FileDecision{}
-	detector.gatherMetricsWithCache(ctx, decision, "foo_test.go", nil, nil)
+	detector.gatherMetrics(ctx, decision, "foo_test.go", nil, nil)
 
 	if !decision.HasTests {
 		t.Errorf("Expected HasTests=true since path has _test.go suffix, even with nil intelligence")
@@ -360,7 +354,7 @@ func TestEdgeCaseDetector_GatherMetrics_NilIntelligence(t *testing.T) {
 
 // REMEDIATED: TEST_GAP: State Conflicts: Race condition where file exists in intel but not on disk.
 func TestEdgeCaseDetector_StateConflicts_DeletedFile(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 
 	path := "non_existent_file_test.go"
 	intel := &IntelligenceReport{
@@ -369,7 +363,7 @@ func TestEdgeCaseDetector_StateConflicts_DeletedFile(t *testing.T) {
 		},
 	}
 
-	decision := detector.analyzeFileWithCache(context.Background(), path, intel, nil)
+	decision := detector.analyzeFile(context.Background(), path, intel, nil)
 
 	if decision.Exists {
 		t.Errorf("Expected decision.Exists to be false since file is not on disk")
@@ -381,7 +375,7 @@ func TestEdgeCaseDetector_StateConflicts_DeletedFile(t *testing.T) {
 
 // REMEDIATED: TEST_GAP: State Conflicts: Race condition where file does not exist in intel but exists on disk.
 func TestEdgeCaseDetector_StateConflicts_CreatedFile(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 
 	tmpFile, err := os.CreateTemp("", "testfile_*.go")
 	if err != nil {
@@ -396,7 +390,7 @@ func TestEdgeCaseDetector_StateConflicts_CreatedFile(t *testing.T) {
 		FileTopology: map[string]FileInfo{},
 	}
 
-	decision := detector.analyzeFileWithCache(context.Background(), path, intel, nil)
+	decision := detector.analyzeFile(context.Background(), path, intel, nil)
 
 	if !decision.Exists {
 		t.Errorf("Expected decision.Exists to be true since file is on disk")
@@ -407,7 +401,7 @@ func TestEdgeCaseDetector_StateConflicts_CreatedFile(t *testing.T) {
 }
 
 func TestEdgeCaseDetector_MaxFileSize(t *testing.T) {
-	detector := NewEdgeCaseDetector(nil, nil)
+	detector := NewEdgeCaseDetector(nil, "")
 	decision := FileDecision{
 		Path:      "huge_file.go",
 		LineCount: math.MaxInt32,

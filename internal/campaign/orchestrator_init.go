@@ -282,7 +282,7 @@ func defaultWireIntelligence(o *Orchestrator, cfg OrchestratorConfig) {
 	}
 
 	if o.edgeCaseDetector == nil {
-		o.edgeCaseDetector = NewEdgeCaseDetector(realKernel, scanner)
+		o.edgeCaseDetector = NewEdgeCaseDetector(realKernel, cfg.Workspace)
 		logging.Campaign("EdgeCaseDetector default-wired from kernel + workspace")
 	}
 }

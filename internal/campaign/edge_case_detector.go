@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"codenerd/internal/core"
 	"codenerd/internal/logging"
+	"codenerd/internal/types"
 	"codenerd/internal/world"
 )
 
@@ -96,8 +98,10 @@ type SplitSuggestion struct {
 
 // EdgeCaseDetector analyzes files to determine appropriate actions.
 type EdgeCaseDetector struct {
-	kernel  core.Kernel
-	scanner *world.Scanner
+	kernel core.Kernel
+	// workspace is the root that canonical identities and the go.mod module
+	// path are taken from; file existence is checked under it.
+	workspace string
 
 	// Configuration
 	config EdgeCaseConfig
@@ -140,12 +144,13 @@ func DefaultEdgeCaseConfig() EdgeCaseConfig {
 	}
 }
 
-// NewEdgeCaseDetector creates a new edge case detector.
-func NewEdgeCaseDetector(kernel core.Kernel, scanner *world.Scanner) *EdgeCaseDetector {
+// NewEdgeCaseDetector creates an edge case detector over the kernel's world
+// model of the workspace rooted at workspace.
+func NewEdgeCaseDetector(kernel core.Kernel, workspace string) *EdgeCaseDetector {
 	return &EdgeCaseDetector{
-		kernel:  kernel,
-		scanner: scanner,
-		config:  DefaultEdgeCaseConfig(),
+		kernel:    kernel,
+		workspace: workspace,
+		config:    DefaultEdgeCaseConfig(),
 	}
 }
 
@@ -162,11 +167,9 @@ func (d *EdgeCaseDetector) AnalyzeFiles(ctx context.Context, paths []string, int
 	timer := logging.StartTimer(logging.CategoryCampaign, "AnalyzeFiles")
 	defer timer.Stop()
 
-	// Pre-query and cache facts from the kernel once to avoid O(N*M) performance cliff
-	var cache *cachedFacts
-	if d.kernel != nil {
-		cache = d.precacheFacts(ctx)
-	}
+	// What every file's analysis shares, read once. The kernel is asked per
+	// file for that file's rows only (argument-indexed), not copied whole.
+	run := d.newRun(intelligence)
 
 	ctx, cancel := context.WithTimeout(ctx, d.config.AnalysisTimeout*time.Duration(len(paths)))
 	defer cancel()
@@ -193,7 +196,7 @@ func (d *EdgeCaseDetector) AnalyzeFiles(ctx context.Context, paths []string, int
 	for w := 0; w < numWorkers; w++ {
 		go func() {
 			for path := range taskChan {
-				decision := d.analyzeFileWithCache(ctx, path, intelligence, cache)
+				decision := d.analyzeFile(ctx, path, intelligence, run)
 				resChan <- decision
 			}
 		}()
@@ -291,99 +294,150 @@ func (d *EdgeCaseDetector) logDecisionSummary(decisions []FileDecision) {
 	}
 }
 
-// queryDependencies gets file dependencies from the kernel.
-func (d *EdgeCaseDetector) queryDependencies(ctx context.Context, decision *FileDecision, path string) {
-	if err := ctx.Err(); err != nil {
+// queryDependencies fills the file's imports and the files that depend on it
+// from the kernel, asking only for the rows that name this file: dependency_link
+// holds a row per import edge of the workspace (251k on this repository) and
+// copying it into Go to find one file's rows was the cost of every analysis.
+//
+// The identity is the canonical workspace path, never the base name: two files
+// called types.go in different packages are different files with different
+// dependents. A file's dependents are the files whose imports reach it:
+//
+//   - a resolved file->file row dependency_link(Importer, File, _), which the
+//     scanner derives for every in-workspace import (world.ResolveDependencyLinks);
+//   - for a Go file, the raw row dependency_link(Importer, "pkg:<import path>", _)
+//     naming the file's package, since a Go import names a package, not a file.
+//
+// For a Go file, an importer in the file's own directory is its package (or the
+// package's external test), not a dependent.
+func (d *EdgeCaseDetector) queryDependencies(ctx context.Context, decision *FileDecision, path string, run *edgeCaseRun) {
+	if err := ctx.Err(); err != nil || d.kernel == nil {
+		return
+	}
+	self := d.identity(path)
+	if self == "" {
 		return
 	}
 
-	// Query dependency_link for dependencies
-	facts, err := d.kernel.Query("dependency_link")
-	if err != nil {
-		return
-	}
-
-	for i, fact := range facts {
-		if i%100 == 0 {
-			if err := ctx.Err(); err != nil {
-				return
-			}
-		}
-		if len(fact.Args) >= 3 {
-			file := d.parseArg(fact.Args[0])
-			callee := d.parseArg(fact.Args[1])
-			imported := d.parseArg(fact.Args[2])
-
-			if file == callee || file == imported {
+	if rows, err := core.BoundRows(d.kernel, "dependency_link", 3, map[int]any{0: self}); err == nil {
+		for _, row := range rows {
+			if len(row.Args) < 3 {
 				continue
 			}
-
-			if d.matchesPath(file, path) {
+			if imported := d.parseArg(row.Args[2]); imported != "" {
 				decision.Dependencies = append(decision.Dependencies, imported)
 			}
-			if d.matchesPath(callee, path) || strings.HasSuffix(imported, filepath.Base(path)) {
-				decision.Dependents = append(decision.Dependents, file)
+		}
+	} else {
+		logging.CampaignDebug("edge case analysis: dependency_link imports of %s: %v", self, err)
+	}
+
+	isGo := strings.HasSuffix(self, ".go")
+	selfDir := pathpkg.Dir(self)
+	targets := []string{self}
+	if isGo {
+		if token := goPackageToken(run.goModule, self); token != "" {
+			targets = append(targets, token)
+		}
+	}
+	for _, target := range targets {
+		rows, err := core.BoundRows(d.kernel, "dependency_link", 3, map[int]any{1: target})
+		if err != nil {
+			logging.CampaignDebug("edge case analysis: dependents of %s via %s: %v", self, target, err)
+			continue
+		}
+		for _, row := range rows {
+			if len(row.Args) < 2 {
+				continue
 			}
+			importer := d.identity(d.parseArg(row.Args[0]))
+			if importer == "" || importer == self {
+				continue
+			}
+			if isGo && pathpkg.Dir(importer) == selfDir {
+				continue
+			}
+			decision.Dependents = append(decision.Dependents, importer)
 		}
 	}
 
-	// Calculate impact score based on dependents
+	decision.Dependencies = dedupeSortedStrings(decision.Dependencies)
+	decision.Dependents = dedupeSortedStrings(decision.Dependents)
 	decision.ImpactScore = len(decision.Dependents)
 }
 
-// queryComplexity estimates complexity from kernel facts.
+// goPackageToken is the CalleeID the Go scanner records for an import of the
+// package that holds file: "pkg:" + module path + the file's directory. "" when
+// the workspace has no go.mod module line, which leaves the token unnameable.
+func goPackageToken(module, canonicalFile string) string {
+	if module == "" || canonicalFile == "" {
+		return ""
+	}
+	dir := pathpkg.Dir(canonicalFile)
+	if dir == "." {
+		return "pkg:" + module
+	}
+	if dir == ".." || strings.HasPrefix(dir, "../") || strings.HasPrefix(dir, "/") {
+		return ""
+	}
+	return "pkg:" + module + "/" + dir
+}
+
+// queryComplexity takes the file's highest cyclomatic complexity from the
+// kernel's rows for that file, or estimates it from line count without any.
 func (d *EdgeCaseDetector) queryComplexity(ctx context.Context, decision *FileDecision, path string) {
 	if err := ctx.Err(); err != nil {
 		return
 	}
-	if d.kernel == nil {
-		// Just estimate from line count if kernel is not available
+	estimate := func() {
 		decision.Complexity = 0
 		if decision.LineCount > 0 {
+			// Bounded so an absurd line count cannot reach float precision limits.
 			safeLineCount := min(decision.LineCount, 10000000)
+			// Rough heuristic: 1 complexity point per 50 lines.
 			decision.Complexity = float64(safeLineCount) / 50.0
 		}
+	}
+	if d.kernel == nil {
+		estimate()
 		return
 	}
 
-	// Query for complexity-related facts
-	facts, err := d.kernel.Query("cyclomatic_complexity")
+	rows, err := core.BoundRows(d.kernel, "cyclomatic_complexity", 3, map[int]any{0: d.identity(path)})
 	if err != nil {
+		logging.CampaignDebug("edge case analysis: cyclomatic_complexity of %s: %v", path, err)
+		estimate()
 		return
 	}
-
 	var (
 		maxComplexity float64
 		hasComplexity bool
 	)
-	for i, fact := range facts {
-		if i%100 == 0 {
-			if err := ctx.Err(); err != nil {
-				return
-			}
+	for _, row := range rows {
+		if len(row.Args) < 3 {
+			continue
 		}
-		if len(fact.Args) >= 3 {
-			file := d.parseArg(fact.Args[0])
-			if d.matchesPath(file, path) {
-				if complexity, ok := d.parseNumber(fact.Args[2]); ok {
-					if !hasComplexity || complexity > maxComplexity {
-						maxComplexity = complexity
-					}
-					hasComplexity = true
-				}
+		if complexity, ok := d.parseNumber(row.Args[2]); ok {
+			if !hasComplexity || complexity > maxComplexity {
+				maxComplexity = complexity
 			}
+			hasComplexity = true
 		}
 	}
+	if !hasComplexity {
+		estimate()
+		return
+	}
+	decision.Complexity = maxComplexity
+}
 
-	// If no complexity data, estimate from line count
-	if hasComplexity {
-		decision.Complexity = maxComplexity
-	} else if decision.LineCount > 0 {
-		// Bounds check to prevent float64 precision issues or extreme values
-		safeLineCount := min(decision.LineCount, 10000000)
-		// Rough heuristic: 1 complexity point per 50 lines
-		decision.Complexity = float64(safeLineCount) / 50.0
+// identity is a path's canonical workspace identity, the form the world model
+// keys its facts by.
+func (d *EdgeCaseDetector) identity(path string) string {
+	if path == "" {
+		return ""
 	}
+	return types.CanonicalPath(d.workspace, path)
 }
 
 // determineAction decides what action to take based on gathered metrics.
@@ -573,16 +627,6 @@ func (d *EdgeCaseDetector) detectLanguage(path string) string {
 	return "unknown"
 }
 
-func (d *EdgeCaseDetector) matchesPath(candidate, path string) bool {
-	if candidate == "" || path == "" {
-		return false
-	}
-	if candidate == path {
-		return true
-	}
-	return strings.HasSuffix(candidate, filepath.Base(path))
-}
-
 // parseArg safely extracts a string from an interface{}.
 func (d *EdgeCaseDetector) parseArg(arg any) string {
 	switch v := arg.(type) {
@@ -756,86 +800,52 @@ func (a *EdgeCaseAnalysis) GetPreworkTasks() []string {
 	return tasks
 }
 
-// cachedFacts holds pre-queried and indexed facts to avoid N+1 query overhead.
-type cachedFacts struct {
-	dependencies map[string][]string
-	dependents   map[string][]string
-	complexity   map[string]float64
+// edgeCaseRun is what one analysis reads once and every file's analysis shares:
+// the workspace's Go module path and the intelligence report indexed by
+// canonical path, so a file's churn and symbols are its own and not those of
+// every file that shares its base name.
+type edgeCaseRun struct {
+	goModule string
+	topology map[string]FileInfo
+	churn    map[string]int
+	symbols  map[string]int
 }
 
-// precacheFacts queries kernel facts once and indexes them for fast lookup.
-func (d *EdgeCaseDetector) precacheFacts(ctx context.Context) *cachedFacts {
-	cache := &cachedFacts{
-		dependencies: make(map[string][]string),
-		dependents:   make(map[string][]string),
-		complexity:   make(map[string]float64),
+func (d *EdgeCaseDetector) newRun(intel *IntelligenceReport) *edgeCaseRun {
+	run := &edgeCaseRun{
+		topology: map[string]FileInfo{},
+		churn:    map[string]int{},
+		symbols:  map[string]int{},
 	}
-
-	// Query dependency_link
-	depFacts, err := d.kernel.Query("dependency_link")
-	if err == nil {
-		for _, fact := range depFacts {
-			if len(fact.Args) >= 3 {
-				file := d.parseArg(fact.Args[0])
-				callee := d.parseArg(fact.Args[1])
-				imported := d.parseArg(fact.Args[2])
-
-				if file == callee || file == imported {
-					continue
-				}
-
-				fileBase := filepath.Base(file)
-				calleeBase := filepath.Base(callee)
-				importedBase := filepath.Base(imported)
-
-				// dependencies mapping
-				cache.dependencies[file] = append(cache.dependencies[file], imported)
-				if fileBase != file {
-					cache.dependencies[fileBase] = append(cache.dependencies[fileBase], imported)
-				}
-
-				// dependents mapping
-				cache.dependents[callee] = append(cache.dependents[callee], file)
-				if calleeBase != callee {
-					cache.dependents[calleeBase] = append(cache.dependents[calleeBase], file)
-				}
-				cache.dependents[imported] = append(cache.dependents[imported], file)
-				if importedBase != imported {
-					cache.dependents[importedBase] = append(cache.dependents[importedBase], file)
-				}
-			}
+	if d.workspace != "" {
+		run.goModule = world.ReadGoModulePath(d.workspace)
+	}
+	if intel == nil {
+		return run
+	}
+	for p, info := range intel.FileTopology {
+		id := d.identity(p)
+		run.topology[id] = info
+	}
+	for _, hotspot := range intel.GitChurnHotspots {
+		id := d.identity(hotspot.Path)
+		if _, seen := run.churn[id]; !seen {
+			run.churn[id] = hotspot.ChurnRate
 		}
 	}
-
-	// Query cyclomatic_complexity
-	compFacts, err := d.kernel.Query("cyclomatic_complexity")
-	if err == nil {
-		for _, fact := range compFacts {
-			if len(fact.Args) >= 3 {
-				file := d.parseArg(fact.Args[0])
-				fileBase := filepath.Base(file)
-				if complexity, ok := d.parseNumber(fact.Args[2]); ok {
-					// Keep max complexity
-					if current, exists := cache.complexity[file]; !exists || complexity > current {
-						cache.complexity[file] = complexity
-					}
-					if fileBase != file {
-						if current, exists := cache.complexity[fileBase]; !exists || complexity > current {
-							cache.complexity[fileBase] = complexity
-						}
-					}
-				}
-			}
-		}
+	for _, symbol := range intel.SymbolGraph {
+		run.symbols[d.identity(symbol.File)]++
 	}
-
-	return cache
+	return run
 }
 
-// analyzeFileWithCache performs analysis on a single file, using precached facts if available.
-func (d *EdgeCaseDetector) analyzeFileWithCache(ctx context.Context, path string, intel *IntelligenceReport, cache *cachedFacts) FileDecision {
+// analyzeFile performs analysis on a single file.
+func (d *EdgeCaseDetector) analyzeFile(ctx context.Context, path string, intel *IntelligenceReport, run *edgeCaseRun) FileDecision {
 	if err := ctx.Err(); err != nil {
 		return FileDecision{Path: path, RecommendedAction: ActionSkip, Reasoning: "Analysis cancelled"}
+	}
+	if run == nil {
+		run = d.newRun(intel)
 	}
 	decision := FileDecision{
 		Path:         path,
@@ -845,36 +855,17 @@ func (d *EdgeCaseDetector) analyzeFileWithCache(ctx context.Context, path string
 		Dependents:   []string{},
 		Warnings:     []string{},
 	}
+	id := d.identity(path)
 
-	// Check if file exists (from intelligence report)
-	if intel != nil && !intel.IsEmpty() && len(intel.FileTopology) > 0 {
-		if fileInfo, exists := intel.FileTopology[path]; exists {
-			decision.Exists = true
-			decision.Language = fileInfo.Language
-		}
-	} else {
-		// Fallback to checking the file system directly if intel is missing or empty
-		if _, err := os.Stat(path); err == nil {
-			decision.Exists = true
-		}
-		if intel == nil || intel.IsEmpty() {
-			decision.Warnings = append(decision.Warnings, "⚠️ Missing intelligence data. File existence verified via filesystem.")
-		}
+	if info, known := run.topology[id]; known && info.Language != "" {
+		decision.Language = info.Language
 	}
-
-	// Double check file existence with the filesystem to prevent race conditions
-	if decision.Exists {
-		if _, err := os.Stat(path); err != nil && os.IsNotExist(err) {
-			decision.Exists = false
-		}
+	if intel == nil || intel.IsEmpty() {
+		decision.Warnings = append(decision.Warnings, "⚠️ Missing intelligence data. File existence verified via filesystem.")
 	}
-
-	// Verify against actual filesystem to avoid state conflicts
-	if decision.Exists {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			decision.Exists = false
-		}
-	} else if _, err := os.Stat(path); err == nil {
+	// The filesystem decides existence: the report can be older than the tree.
+	// Resolved against the workspace, not the process directory.
+	if _, err := os.Stat(types.ResolveWorkspacePath(d.workspace, id)); err == nil {
 		decision.Exists = true
 	}
 
@@ -885,8 +876,7 @@ func (d *EdgeCaseDetector) analyzeFileWithCache(ctx context.Context, path string
 		return decision
 	}
 
-	// Gather metrics from intelligence report and cache
-	d.gatherMetricsWithCache(ctx, &decision, path, intel, cache)
+	d.gatherMetrics(ctx, &decision, path, intel, run)
 
 	// Clamp LineCount to avoid float64 precision issues or overflow
 	if decision.LineCount < 0 {
@@ -909,38 +899,30 @@ func (d *EdgeCaseDetector) analyzeFileWithCache(ctx context.Context, path string
 	return decision
 }
 
-// gatherMetricsWithCache populates decision metrics from intelligence data and caches.
-func (d *EdgeCaseDetector) gatherMetricsWithCache(ctx context.Context, decision *FileDecision, path string, intel *IntelligenceReport, cache *cachedFacts) {
+// gatherMetrics populates decision metrics from the intelligence report and
+// the kernel's rows for this file.
+func (d *EdgeCaseDetector) gatherMetrics(ctx context.Context, decision *FileDecision, path string, intel *IntelligenceReport, run *edgeCaseRun) {
 	if err := ctx.Err(); err != nil {
 		return
 	}
+	if run == nil {
+		run = d.newRun(intel)
+	}
+	id := d.identity(path)
 	if intel != nil {
-		// Get churn rate from git history
-		for _, hotspot := range intel.GitChurnHotspots {
-			if hotspot.Path == path || strings.HasSuffix(hotspot.Path, filepath.Base(path)) {
-				decision.ChurnRate = hotspot.ChurnRate
-				break
-			}
-		}
+		decision.ChurnRate = run.churn[id]
 
-		// Count symbols in file
-		symbolCount := 0
-		for _, symbol := range intel.SymbolGraph {
-			if symbol.File == path || strings.HasSuffix(symbol.File, filepath.Base(path)) {
-				symbolCount++
-			}
-		}
 		// Estimate line count from symbol density
+		symbolCount := run.symbols[id]
 		if symbolCount > math.MaxInt32/25 {
 			decision.LineCount = math.MaxInt32
 		} else {
 			decision.LineCount = symbolCount * 25 // Rough estimate
 		}
 
-		// Check for test file
-		if !strings.HasSuffix(path, "_test.go") {
-			testPath := strings.TrimSuffix(path, filepath.Ext(path)) + "_test" + filepath.Ext(path)
-			_, decision.HasTests = intel.FileTopology[testPath]
+		if !strings.HasSuffix(id, "_test.go") {
+			testPath := strings.TrimSuffix(id, filepath.Ext(id)) + "_test" + filepath.Ext(id)
+			_, decision.HasTests = run.topology[testPath]
 		}
 	}
 
@@ -948,38 +930,6 @@ func (d *EdgeCaseDetector) gatherMetricsWithCache(ctx context.Context, decision 
 		decision.HasTests = true
 	}
 
-	// Query dependencies & complexity (either using cache or direct query)
-	if cache != nil {
-		pathBase := filepath.Base(path)
-
-		// Dependencies
-		if deps, ok := cache.dependencies[path]; ok {
-			decision.Dependencies = append(decision.Dependencies, deps...)
-		} else if deps, ok := cache.dependencies[pathBase]; ok {
-			decision.Dependencies = append(decision.Dependencies, deps...)
-		}
-		decision.Dependencies = dedupeSortedStrings(decision.Dependencies)
-
-		// Dependents
-		if deps, ok := cache.dependents[path]; ok {
-			decision.Dependents = append(decision.Dependents, deps...)
-		} else if deps, ok := cache.dependents[pathBase]; ok {
-			decision.Dependents = append(decision.Dependents, deps...)
-		}
-		decision.Dependents = dedupeSortedStrings(decision.Dependents)
-		decision.ImpactScore = len(decision.Dependents)
-
-		// Complexity
-		if comp, ok := cache.complexity[path]; ok {
-			decision.Complexity = comp
-		} else if comp, ok := cache.complexity[pathBase]; ok {
-			decision.Complexity = comp
-		} else if decision.LineCount > 0 {
-			decision.Complexity = float64(decision.LineCount) / 50.0
-		}
-	} else if d.kernel != nil {
-		// Fallback to direct queries
-		d.queryDependencies(ctx, decision, path)
-		d.queryComplexity(ctx, decision, path)
-	}
+	d.queryDependencies(ctx, decision, path, run)
+	d.queryComplexity(ctx, decision, path)
 }

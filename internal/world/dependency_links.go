@@ -64,7 +64,7 @@ func newRepoFileIndex(root string, canonicalFiles []string) *repoFileIndex {
 	idx := &repoFileIndex{
 		goFilesByDir: make(map[string][]string),
 		all:          make(map[string]struct{}, len(canonicalFiles)),
-		goModule:     readGoModulePath(root),
+		goModule:     ReadGoModulePath(root),
 	}
 	for _, f := range canonicalFiles {
 		c := types.SlashClean(f)
@@ -83,11 +83,11 @@ func newRepoFileIndex(root string, canonicalFiles []string) *repoFileIndex {
 	return idx
 }
 
-// readGoModulePath extracts the module path from <root>/go.mod.
+// ReadGoModulePath extracts the module path from <root>/go.mod, "" without one.
 // Without it, Go import paths cannot be mapped to workspace directories, so
 // resolution falls back to treating the import path as a literal directory
 // (which is what a GOPATH-less multi-module checkout looks like).
-func readGoModulePath(root string) string {
+func ReadGoModulePath(root string) string {
 	data, err := os.ReadFile(types.ResolveWorkspacePath(root, "go.mod"))
 	if err != nil {
 		return ""

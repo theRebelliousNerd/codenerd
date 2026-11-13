@@ -128,7 +128,7 @@ func (m Model) newCampaignOrchestrator(progressChan chan campaign.Progress, even
 		Campaign:             m.Config.GetCampaignConfig(),
 		IntelligenceGatherer: intelligenceGatherer,
 		AdvisoryBoard:        advisoryBoard,
-		EdgeCaseDetector:     campaign.NewEdgeCaseDetector(m.kernel, m.scanner),
+		EdgeCaseDetector:     campaign.NewEdgeCaseDetector(m.kernel, m.workspace),
 		NorthstarObserver:    northstar.BuildCampaignObserver(m.workspace, m.client, m.kernel),
 	})
 	if err != nil {

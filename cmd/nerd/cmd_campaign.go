@@ -217,7 +217,7 @@ func buildCampaignOrchestratorConfig(cortex *coresys.Cortex, cwd string, progres
 
 	northstarObserver := campaignNorthstarObserver(cortex, cwd)
 
-	edgeCaseDetector := campaign.NewEdgeCaseDetector(kern, worldScanner)
+	edgeCaseDetector := campaign.NewEdgeCaseDetector(kern, cwd)
 
 	cfg.IntelligenceGatherer = intelligenceGatherer
 	cfg.AdvisoryBoard = advisoryBoard
