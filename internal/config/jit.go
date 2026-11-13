@@ -79,6 +79,18 @@ type JITConfig struct {
 	// size and splits anything longer at its headings.
 	AtomMaxChars int `yaml:"atom_max_chars" json:"atom_max_chars"`
 
+	// RetrievedKnowledgePercent is retrieved knowledge's share of a compile's
+	// token budget, in percent (default: 5). Retrieved knowledge and
+	// learning rows are admitted best-first, as the kernel orders them,
+	// until the share is spent (jit_compiler.mg retrieved_within_share); a
+	// row that does not fit is left out whole and the prompt names it with
+	// a recall handle.
+	RetrievedKnowledgePercent int `yaml:"retrieved_knowledge_percent" json:"retrieved_knowledge_percent"`
+
+	// RetrievedKnowledgeMaxTokens caps that share (default: 8000): a
+	// million-token window's five percent is not a share any step reads.
+	RetrievedKnowledgeMaxTokens int `yaml:"retrieved_knowledge_max_tokens" json:"retrieved_knowledge_max_tokens"`
+
 	// VectorSearchTimeoutMs bounds one semantic search a compile runs, for
 	// atom selection and for learning recall (default: 10000). A search that
 	// runs out leaves the compile on logic scores alone.
@@ -135,6 +147,8 @@ func DefaultJITConfig() JITConfig {
 		FallbackIdentityMaxBytes:    1024 * 1024,
 		AtomMaxChars:                1500,
 		VectorSearchTimeoutMs:       10000,
+		RetrievedKnowledgePercent:   5,
+		RetrievedKnowledgeMaxTokens: 8000,
 	}
 }
 

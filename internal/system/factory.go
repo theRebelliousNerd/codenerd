@@ -1810,6 +1810,8 @@ func initIntelligenceLayer(bctx *bootContext) error {
 	compilerCfg.SpecialistKnowledgeBlocks = bctx.jitCfg.SpecialistKnowledgeBlocks
 	compilerCfg.SpecialistTopicChars = bctx.jitCfg.SpecialistTopicChars
 	compilerCfg.SpecialistBlockChars = bctx.jitCfg.SpecialistBlockChars
+	compilerCfg.RetrievedKnowledgePercent = bctx.jitCfg.RetrievedKnowledgePercent
+	compilerCfg.RetrievedKnowledgeMaxTokens = bctx.jitCfg.RetrievedKnowledgeMaxTokens
 	compilerCfg.VectorSearchTimeout = time.Duration(bctx.jitCfg.VectorSearchTimeoutMs) * time.Millisecond
 	compilerOpts := []prompt.CompilerOption{
 		// The roster the prompts advertise is this session's workspace's,

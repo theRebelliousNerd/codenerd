@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"codenerd/internal/observation"
 	"codenerd/internal/tools"
 )
 
@@ -21,13 +22,24 @@ const maxContextSearchRecords = 50
 var retainedHandleRedeemers = map[string]func(context.Context, map[string]any) (string, error){
 	"obs:sa:": executeSubagentExpand,
 	"obs:cs:": executeSearchExpand,
+	"obs:kn:": executeKnowledgeRead,
+}
+
+// executeKnowledgeRead returns a knowledge row a compile withheld because it
+// did not fit the prompt's retrieved-knowledge share (the "[knowledge
+// withheld]" pointer names its handle). offset and max_lines count lines.
+func executeKnowledgeRead(_ context.Context, args map[string]any) (string, error) {
+	handle, _ := args["handle"].(string)
+	offset, _ := argInt(args, "offset")
+	limit, _ := argInt(args, "max_lines")
+	return observation.SharedKnowledge().Read(handle, offset, limit)
 }
 
 func RecallContextTool() *tools.Tool {
 	return &tools.Tool{
-		Name: "recall_context", Description: "Recover a page of an archived observation by its handle (the short number shown in the working section and in \"Observation archived\" pointers), or the retained text behind any handle the harness gave you (a subagent return obs:sa:..., a code search obs:cs:...), or the conversation turns an eviction notice says left your window (obs:hist:..., paged in characters). Returns original revision and provenance; historical observations are not current verification.", Category: tools.CategoryGeneral, Priority: 65,
+		Name: "recall_context", Description: "Recover a page of an archived observation by its handle (the short number shown in the working section and in \"Observation archived\" pointers), or the retained text behind any handle the harness gave you (a subagent return obs:sa:..., a code search obs:cs:..., a withheld knowledge row obs:kn:...), or the conversation turns an eviction notice says left your window (obs:hist:..., paged in characters). Returns original revision and provenance; historical observations are not current verification.", Category: tools.CategoryGeneral, Priority: 65,
 		Schema: tools.ToolSchema{Properties: map[string]tools.Property{
-			"id":     {Type: "string", Description: "Observation handle exactly as shown: the short number from the working context (e.g. 27, no prefix), a retained handle (obs:sa:..., obs:cs:...), or the obs:hist:... handle an eviction notice names"},
+			"id":     {Type: "string", Description: "Observation handle exactly as shown: the short number from the working context (e.g. 27, no prefix), a retained handle (obs:sa:..., obs:cs:..., obs:kn:...), or the obs:hist:... handle an eviction notice names"},
 			"query":  {Type: "string", Description: "Literal archive search when the observation handle is unknown; provide query or id"},
 			"offset": {Type: "integer", Description: "Character offset, default zero (lines, for a retained handle)"},
 			"limit":  {Type: "integer", Description: "With id: page characters; omitted returns the rest of the body from offset. Page only when a whole body was reported as not fitting the request. With query: number of records, at most 50. Lines, for a retained handle"},

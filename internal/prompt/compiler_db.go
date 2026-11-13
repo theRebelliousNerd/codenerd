@@ -483,6 +483,10 @@ const knowledgeRowsPerSource = 5
 // (one agent file indexed from three mirror paths) and one 4.9k-char page
 // twice (two experts' knowledge bases). The first copy, from the source
 // searched first, is kept.
+//
+// A row from the same source page as one already appended (knowledgePageKey)
+// whose text overlaps it (knowledgeTextOverlaps) is the same knowledge twice
+// -- one page indexed in two KBs, or re-split -- and also counts once.
 func appendKnowledgePromptAtoms(dst []*PromptAtom, seen map[string]struct{}, atoms []store.KnowledgeAtom, shardID, source, expertKey string) []*PromptAtom {
 	for _, atom := range atoms {
 		pa := knowledgeAtomToPromptAtom(atom, shardID, source)
@@ -496,11 +500,106 @@ func appendKnowledgePromptAtoms(dst []*PromptAtom, seen map[string]struct{}, ato
 		if _, dup := seen[body]; dup {
 			continue
 		}
+		if overlapsAppendedPage(dst, atom) {
+			continue
+		}
 		seen[pa.ID] = struct{}{}
 		seen[body] = struct{}{}
 		dst = append(dst, pa)
 	}
 	return dst
+}
+
+// overlapsAppendedPage reports whether a retrieved row repeats a row already
+// appended from the same source page.
+func overlapsAppendedPage(dst []*PromptAtom, atom store.KnowledgeAtom) bool {
+	page := knowledgePageKey(atom.Concept)
+	if page == "" {
+		return false
+	}
+	for _, kept := range dst {
+		if kept == nil || !kept.RetrievedContext {
+			continue
+		}
+		concept, body := retrievedConceptAndBody(kept)
+		if knowledgePageKey(concept) == page && knowledgeTextOverlaps(body, atom.Content) {
+			return true
+		}
+	}
+	return false
+}
+
+// retrievedConceptAndBody recovers a rendered knowledge row's concept and
+// stored text from its header line.
+func retrievedConceptAndBody(pa *PromptAtom) (concept, body string) {
+	header, body, _ := strings.Cut(pa.Content, "\n")
+	if pa.KnowledgeConcept != "" {
+		return pa.KnowledgeConcept, body
+	}
+	if _, rest, ok := strings.Cut(header, ` concept="`); ok {
+		if c, _, ok := strings.Cut(rest, `" confidence=`); ok {
+			concept = c
+		}
+	}
+	return concept, body
+}
+
+// knowledgePageKey is the page a knowledge concept was cut from: the concept
+// without a trailing section or paragraph index ("web/go/section_36" ->
+// "web/go"; an ecosystem paragraph -> its path). "" when the concept names no
+// page.
+func knowledgePageKey(concept string) string {
+	concept = strings.TrimSpace(concept)
+	if concept == "" {
+		return ""
+	}
+	if _, rest, ok := strings.Cut(concept, " path="); ok {
+		path, _, _ := strings.Cut(rest, " ")
+		return "path:" + path
+	}
+	if i := strings.LastIndexAny(concept, "/:"); i > 0 {
+		tail := concept[i+1:]
+		if strings.HasPrefix(tail, "section_") || strings.HasPrefix(tail, "part_") {
+			return concept[:i]
+		}
+	}
+	return concept
+}
+
+// knowledgeTextOverlaps reports whether two rows of one page say the same
+// thing: one contains the other (whitespace folded), or most of the shorter
+// one's lines occur in the longer one.
+func knowledgeTextOverlaps(a, b string) bool {
+	fa, fb := strings.Join(strings.Fields(a), " "), strings.Join(strings.Fields(b), " ")
+	if fa == "" || fb == "" {
+		return false
+	}
+	if strings.Contains(fa, fb) || strings.Contains(fb, fa) {
+		return true
+	}
+	short, long := a, b
+	if len(short) > len(long) {
+		short, long = long, short
+	}
+	lines := map[string]bool{}
+	for _, line := range strings.Split(long, "\n") {
+		if t := strings.TrimSpace(line); t != "" {
+			lines[t] = true
+		}
+	}
+	total, shared := 0, 0
+	for _, line := range strings.Split(short, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" {
+			continue
+		}
+		total++
+		if lines[t] {
+			shared++
+		}
+	}
+	const overlapPercent = 80
+	return total > 0 && shared*100 >= total*overlapPercent
 }
 
 // collectLearningAtomsFrom recalls from the learning store captured in src.

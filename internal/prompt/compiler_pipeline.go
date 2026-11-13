@@ -80,6 +80,10 @@ func (c *JITPromptCompiler) compile(ctx context.Context, cc *CompilationContext)
 	cc = cc.Clone()
 	config, configRevision, selectorSettings := c.configSnapshot()
 	cc.selectorVectorConfig = &selectorSettings
+	cc.retrievedShare = config.retrievedKnowledgeShare()
+	if cc.retrievedShare.budget = cc.AvailableTokens(); cc.retrievedShare.budget <= 0 {
+		cc.retrievedShare.budget = config.DefaultTokenBudget
+	}
 	if !cc.HasVectorWeight && config.VectorSearchWeight > 0 {
 		cc.VectorWeight = config.VectorSearchWeight
 		cc.HasVectorWeight = true
@@ -324,6 +328,14 @@ func (c *JITPromptCompiler) compileMiss(ctx context.Context, in missInput) (any,
 			return nil, fmt.Errorf("read section admission: %w", err)
 		}
 		scored = expandSections(scored, candidates, admitted)
+	}
+	// Retrieved rows the kernel withheld for want of their share are named,
+	// with a recall handle each, in one pointer atom: left out whole, not cut,
+	// and not silently.
+	if pointer, err := withheldKnowledgePointer(in.kernel, candidates, cc.retrievedShare); err != nil {
+		return nil, fmt.Errorf("read withheld knowledge: %w", err)
+	} else if pointer != nil {
+		scored = append(scored, pointer)
 	}
 	stats.SelectAtomsMs = time.Since(selectStart).Milliseconds()
 	stats.VectorQueryMs = vectorMs

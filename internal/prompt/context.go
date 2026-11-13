@@ -205,6 +205,11 @@ type CompilationContext struct {
 	// snapshot captured at selection start.
 	selectorVectorConfig *selectorVectorConfig
 
+	// retrievedShare is retrieved knowledge's share of the budget, pinned by
+	// the compiler from its config for this compile (zero: not pinned, the
+	// JIT default applies).
+	retrievedShare retrievedKnowledgeShare
+
 	// stagedCarry is the carry this compile's selection staged; the compiler
 	// publishes it when the prompt completes (AtomSelector.publishCarry).
 	stagedCarry *carryStage

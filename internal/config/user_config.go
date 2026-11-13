@@ -1862,6 +1862,12 @@ func (c *UserConfig) GetJITConfig() JITConfig {
 		if c.JIT.VectorSearchTimeoutMs > 0 {
 			cfg.VectorSearchTimeoutMs = c.JIT.VectorSearchTimeoutMs
 		}
+		if c.JIT.RetrievedKnowledgePercent > 0 {
+			cfg.RetrievedKnowledgePercent = c.JIT.RetrievedKnowledgePercent
+		}
+		if c.JIT.RetrievedKnowledgeMaxTokens > 0 {
+			cfg.RetrievedKnowledgeMaxTokens = c.JIT.RetrievedKnowledgeMaxTokens
+		}
 	}
 	return cfg
 }

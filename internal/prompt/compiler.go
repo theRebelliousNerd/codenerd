@@ -133,7 +133,11 @@ var promptEphemeralPredicates = []string{
 	"atom_requires_tool",
 	"available_tool",
 	"compile_shard",
+	"compile_budget",
 	"retrieved_context",
+	"retrieved_context_tokens",
+	"retrieved_context_rank",
+	"retrieved_knowledge_share_config",
 }
 
 // VectorSearcher defines the interface for semantic search.
@@ -278,6 +282,13 @@ type CompilerConfig struct {
 	// value resolves to jit.specialist_block_chars.
 	SpecialistBlockChars int
 
+	// RetrievedKnowledgePercent and RetrievedKnowledgeMaxTokens are
+	// jit.retrieved_knowledge_percent and jit.retrieved_knowledge_max_tokens:
+	// retrieved knowledge's share of the compile budget, which the kernel
+	// spends best-first. Non-positive resolves to the JIT default.
+	RetrievedKnowledgePercent   int
+	RetrievedKnowledgeMaxTokens int
+
 	// FOUR FIELDS WERE REMOVED HERE on 2026-09-11, all set by
 	// DefaultCompilerConfig and read by nothing in the repository -- not
 	// production, not tests, except tests asserting the literal they had just
@@ -323,16 +334,18 @@ func DefaultCompilerConfig() CompilerConfig {
 		// Mirrors AtomSelector's own default. The selector keeps one too, for
 		// direct users that never see a CompilerConfig; this is the value the
 		// compiler pushes into it.
-		VectorSearchWeight:        0.3, // 70% logic, 30% vector
-		DebugMode:                 false,
-		KnowledgeSearchTimeout:    10 * time.Second,
-		VectorSearchTimeout:       defaultVectorSearchTimeout,
-		KernelContextRows:         jitDefaults.KernelContextRows,
-		KernelContextRowChars:     jitDefaults.KernelContextRowChars,
-		KernelInjectedAtomChars:   jitDefaults.KernelInjectedAtomChars,
-		SpecialistKnowledgeBlocks: jitDefaults.SpecialistKnowledgeBlocks,
-		SpecialistTopicChars:      jitDefaults.SpecialistTopicChars,
-		SpecialistBlockChars:      jitDefaults.SpecialistBlockChars,
+		VectorSearchWeight:          0.3, // 70% logic, 30% vector
+		DebugMode:                   false,
+		KnowledgeSearchTimeout:      10 * time.Second,
+		VectorSearchTimeout:         defaultVectorSearchTimeout,
+		KernelContextRows:           jitDefaults.KernelContextRows,
+		KernelContextRowChars:       jitDefaults.KernelContextRowChars,
+		KernelInjectedAtomChars:     jitDefaults.KernelInjectedAtomChars,
+		SpecialistKnowledgeBlocks:   jitDefaults.SpecialistKnowledgeBlocks,
+		SpecialistTopicChars:        jitDefaults.SpecialistTopicChars,
+		SpecialistBlockChars:        jitDefaults.SpecialistBlockChars,
+		RetrievedKnowledgePercent:   jitDefaults.RetrievedKnowledgePercent,
+		RetrievedKnowledgeMaxTokens: jitDefaults.RetrievedKnowledgeMaxTokens,
 	}
 }
 

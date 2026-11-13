@@ -1240,10 +1240,38 @@ func (s *AtomSelector) buildFleshFacts(
 	// task. They cannot appear in the persistent prompt-vector index. Emit a
 	// distinct witness so Mangle still applies context, conflict and dependency
 	// rules without pretending this was a cosine similarity or mandatory atom.
+	// Each row's size and retrieval rank, and the compile's budget and share
+	// configuration: the kernel spends retrieved knowledge's share
+	// best-first (jit_compiler.mg retrieved_within_share).
+	rank := 0
 	for _, atom := range fleshAtoms {
 		if atom.RetrievedContext {
-			facts = append(facts, "retrieved_context("+mangleQuoteString(atom.ID)+")")
+			id := mangleQuoteString(atom.ID)
+			tokens := atom.TokenCount
+			if tokens <= 0 {
+				tokens = EstimateTokens(atom.Content)
+			}
+			facts = append(facts,
+				"retrieved_context("+id+")",
+				"retrieved_context_tokens("+id+", "+strconv.Itoa(tokens)+")",
+				"retrieved_context_rank("+id+", "+strconv.Itoa(rank)+")",
+			)
+			rank++
 		}
+	}
+	if rank > 0 && cc != nil {
+		share := cc.retrievedShare.resolved()
+		budget := share.budget
+		if budget <= 0 {
+			budget = cc.AvailableTokens()
+		}
+		if budget <= 0 {
+			budget = DefaultCompilerConfig().DefaultTokenBudget
+		}
+		facts = append(facts,
+			"compile_budget("+strconv.Itoa(budget)+")",
+			"retrieved_knowledge_share_config("+strconv.Itoa(share.percent)+", "+strconv.Itoa(share.maxTokens)+")",
+		)
 	}
 	return facts, nil
 }

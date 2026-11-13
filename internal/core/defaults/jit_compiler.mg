@@ -23,6 +23,16 @@ Decl flesh_admitted(Atom, Row) bound [/string, /name].
 Decl flesh_refused(Atom, Row) bound [/string, /name].
 Decl refused_by_relevance(Atom) bound [/string].
 
+# Retrieved knowledge under its share of the budget
+Decl retrieved_admissible(Atom) bound [/string].
+Decl retrieved_priority(Atom, Percent) bound [/string, /number].
+Decl retrieved_order(Atom, Key) bound [/string, /number].
+Decl retrieved_cumulative(Atom, Tokens) bound [/string, /number].
+Decl retrieved_fits_alone(Atom) bound [/string].
+Decl retrieved_knowledge_share(Tokens) bound [/number].
+Decl retrieved_within_share(Atom) bound [/string].
+Decl retrieved_withheld(Atom, Reason) bound [/string, /name].
+
 # Conflict resolution
 Decl beats(A, B).
 Decl suppressed(Atom).
@@ -312,11 +322,83 @@ candidate_selection(Atom, Score) :-
 # this request is refused like any other flesh: a lexical match of five rows
 # a source is not evidence that the row is about the task. Unsettled or
 # unjudged rows stay admitted -- a missing judgment is never a "no".
-candidate_selection(Atom, 100) :-
+#
+# Retrieved knowledge has a share of the compile budget
+# (retrieved_knowledge_share_config: jit.retrieved_knowledge_percent of
+# compile_budget, capped at jit.retrieved_knowledge_max_tokens), and the kernel
+# spends it best-first: Jev's relevance percent where it judged the row, the
+# neutral 50 where it did not, then the order retrieval returned the rows in
+# (retrieved_context_rank). A row is admitted while the running total of the
+# admissible rows ordered before it and its own tokens fits the share (a row
+# larger than the whole share is skipped and spends none); the rest are
+# withheld whole and the prompt names each with a recall handle
+# (internal/prompt/knowledge_withheld.go). Before the share, every retrieved
+# row entered at full score and the budget's second pass filled the window
+# with them: live 2026-11-12 a Go step's prompt was ~147k chars, ~100k of it
+# 21 retrieved rows.
+retrieved_admissible(Atom) :-
     retrieved_context(Atom),
     !blocked_by_context(Atom),
     !prohibited(Atom),
     !refused_by_relevance(Atom).
+
+retrieved_priority(Atom, Percent) :-
+    retrieved_admissible(Atom),
+    atom_relevance(Atom, Percent).
+retrieved_priority(Atom, 50) :-
+    retrieved_admissible(Atom),
+    !relevance_judged(Atom).
+
+# One total order: higher priority first, then retrieval rank (rank < 1000).
+retrieved_order(Atom, Key) :-
+    retrieved_priority(Atom, Percent),
+    retrieved_context_rank(Atom, Rank),
+    Inverse = fn:minus(100, Percent),
+    Scaled = fn:mult(Inverse, 1000),
+    Key = fn:plus(Scaled, Rank).
+
+# A row larger than the whole share can never be admitted, so it spends none
+# of it: the rows after it are still admitted in order while they fit.
+retrieved_fits_alone(Atom) :-
+    retrieved_order(Atom, _),
+    retrieved_context_tokens(Atom, Tokens),
+    retrieved_knowledge_share(Share),
+    Tokens <= Share.
+
+retrieved_cumulative(Atom, Total) :-
+    retrieved_fits_alone(Atom),
+    retrieved_order(Atom, Key),
+    retrieved_fits_alone(Earlier),
+    retrieved_order(Earlier, EarlierKey),
+    EarlierKey <= Key,
+    retrieved_context_tokens(Earlier, Tokens)
+    |> do fn:group_by(Atom), let Total = fn:sum(Tokens).
+
+retrieved_knowledge_share(Share) :-
+    compile_budget(Budget),
+    retrieved_knowledge_share_config(Percent, Max),
+    Scaled = fn:mult(Budget, Percent),
+    Share = fn:div(Scaled, 100),
+    Share <= Max.
+retrieved_knowledge_share(Max) :-
+    compile_budget(Budget),
+    retrieved_knowledge_share_config(Percent, Max),
+    Scaled = fn:mult(Budget, Percent),
+    Share = fn:div(Scaled, 100),
+    Share > Max.
+
+retrieved_within_share(Atom) :-
+    retrieved_cumulative(Atom, Total),
+    retrieved_knowledge_share(Share),
+    Total <= Share.
+
+retrieved_withheld(Atom, /over_share) :-
+    retrieved_order(Atom, _),
+    !retrieved_within_share(Atom).
+
+candidate_selection(Atom, Percent) :-
+    retrieved_within_share(Atom),
+    retrieved_priority(Atom, Percent).
 
 flesh_refused(Atom, /judged_does_not_apply) :-
     retrieved_context(Atom),

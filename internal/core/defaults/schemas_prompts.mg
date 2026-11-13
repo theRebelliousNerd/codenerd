@@ -336,6 +336,16 @@ Decl vector_hit(AtomID, Score) bound [/string, /number].
 # Ephemeral knowledge matched by a bounded runtime lookup, not a vector score.
 Decl retrieved_context(AtomID) bound [/string].
 
+# retrieved_context_tokens(AtomID, Tokens) - a retrieved row's estimated
+# tokens; retrieved_context_rank(AtomID, Rank) - its position in the order
+# retrieval returned the compile's rows (project, speaking expert, pushed
+# experts). retrieved_knowledge_share_config(Percent, MaxTokens) -
+# jit.retrieved_knowledge_percent and jit.retrieved_knowledge_max_tokens.
+# Producer: internal/prompt/selector.go (buildFleshFacts), per compile.
+Decl retrieved_context_tokens(AtomID, Tokens) bound [/string, /number].
+Decl retrieved_context_rank(AtomID, Rank) bound [/string, /number].
+Decl retrieved_knowledge_share_config(Percent, MaxTokens) bound [/number, /number].
+
 # current_context(Dimension, Tag)
 # Runtime context state injected by Go (alternative to compile_context)
 # Used by jit_compiler.mg for context matching
