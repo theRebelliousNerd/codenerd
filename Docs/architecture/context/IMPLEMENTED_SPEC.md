@@ -576,8 +576,13 @@ verb-to-predicate boost table is a package value. Scoring 300k facts measured
 1.6 s and 1.11 GB before and 0.24 s and 83 MB after
 (`BenchmarkApplyIntentActivation`).
 
-Not built: the turn path and every state save still collect every EDB fact and
-score each one in Go. The vision is that the kernel selects what enters the
+Measured 2026-11-13 (`TestRealWorldProfile`): in a chat session the compressor's
+own kernel is the catch-all shard, 2,506 facts of the 165,721 the Cortex holds
+for this repository, so the collection below is small there. It is the whole
+kernel only for a compressor built on a single-store kernel.
+
+Not built: the turn path and every state save still collect every fact of the
+compressor's own kernel and score each one in Go. The vision is that the kernel selects what enters the
 window; the Go engine is the fallback and should not see the world model at
 all. The verb-to-predicate boosts are a decision table in Go for the same
 reason.

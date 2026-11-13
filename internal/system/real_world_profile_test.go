@@ -104,6 +104,13 @@ func TestRealWorldProfile(t *testing.T) {
 	step("a second file modified", func() error {
 		return ck.Assert(core.Fact{Predicate: "modified", Args: []any{"internal/world/dependency_links.go"}})
 	})
+	// What the context compressor's own kernel holds in a chat session: the
+	// catch-all shard. Its Go fallback scores every one of these facts.
+	n := 0
+	for range ck.GetPrimaryRealKernel().GetAllFactsSeq() {
+		n++
+	}
+	t.Logf("catch-all shard: %d facts of %d in the Cortex", n, ck.TotalFactCount())
 	step("the first modification retracted", func() error {
 		return ck.RetractFact(core.Fact{Predicate: "modified", Args: []any{"internal/core/kernel_eval.go"}})
 	})
