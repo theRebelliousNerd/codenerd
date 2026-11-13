@@ -55,9 +55,15 @@ func TestRealWorldProfile(t *testing.T) {
 		if err := do(); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		// Evaluation is deferred to the first read; the read is part of the cost.
-		after := counts()
+		// Evaluation is deferred to the first read, so the cost is the write
+		// plus the reads a turn makes; the row census afterwards is not.
+		for _, pred := range []string{"should_include_context", "next_action", "impacted", "injectable_context"} {
+			if _, err := ck.Query(pred); err != nil {
+				t.Fatalf("%s: query %s: %v", name, pred, err)
+			}
+		}
 		took := time.Since(begin)
+		after := counts()
 		type delta struct {
 			pred string
 			n    int
