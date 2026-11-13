@@ -581,3 +581,46 @@ score each one in Go. The vision is that the kernel selects what enters the
 window; the Go engine is the fallback and should not see the world model at
 all. The verb-to-predicate boosts are a decision table in Go for the same
 reason.
+
+## What the window shows of a selected entity
+
+`should_include_context` names entities; `context_view` and `context_focal`
+(`internal/core/defaults/policy/context_compilation.mg:116`,
+`internal/core/defaults/schemas_context.mg`, CC.3) decide which facts about
+each one enter the active context. A view is a relation, an arity and the
+argument position that holds the entity, with a rank and a scope: `/any` views
+are shown of every selected entity, `/focal` views only of the entities the
+turn is working on (intent target, focus, modified files, files a failing test
+or build names).
+
+`Compressor.viewFacts` (`internal/context/entity_views.go:103`) carries the
+decision out. Rank by rank, and within a rank entity by entity in priority
+order, it reads the rows of each applicable view from the session's whole
+kernel through the argument index (`core.BoundRows`), each row carrying its
+entity's priority, and stops once the rows read fill the atom reserve. Go
+names no predicate. `buildKernelDerivedContext`
+(`internal/context/compressor_metrics.go:657`) places exactly spelled facts
+first, then the view rows, then the facts of the compressor's own kernel that
+mention the entity.
+
+The shipped views: failures, diagnostics and safety warnings at rank 1; the
+compact placement rows (modified, cycle membership, dependent count, unit,
+test pairing, session note) at rank 2; what a focal entity imports at rank 3;
+a focal file's symbols at rank 4, after every compact view of every selected
+entity.
+
+Before this a selected entity resolved only to the facts that mention it in the
+compressor's own kernel. In a chat session that is the Cortex's catch-all
+shard, which holds none of the world model
+(`TestDomainCortex_ASelectedFileIsShownThroughItsViews`,
+`internal/system/domain_cortex_entity_views_test.go:22`, asserts the catch-all
+holds no `symbol_graph` row and the block carries the focal file's symbols and
+imports, the neighbour's compact view and not its surface, and a view added in
+policy). Budget and skip behaviour: `TestViewFacts_StopsReadingAtTheBudget`,
+`TestViewFacts_SkipsWhatItCannotRead` (`internal/context/entity_views_test.go:30`,
+`:67`).
+
+Not measured: the block on a live session over a real workspace (codeNERD was
+not run for this change), and whether the views chosen are the ones that save a
+model the most reads. The view table is the place to tune that.
+

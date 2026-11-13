@@ -105,6 +105,48 @@ context_must_retain(/security_violation).
 context_must_retain(/block_commit).
 
 # =============================================================================
+# CC.3: Entity views -- what the window shows of a selected entity
+# Selection above names entities. Which facts about an entity enter the window
+# is decided here, not by which facts happen to mention it in one shard: Go
+# reads context_view and context_focal and fetches exactly these rows, from
+# whichever shard holds or derives them.
+# =============================================================================
+
+# The entities the turn is working on.
+context_focal(Target) :-
+    user_intent(/current_intent, _, _, Target, _).
+context_focal(File) :-
+    focus_resolution(_, File, _, _).
+context_focal(File) :-
+    modified(File).
+context_focal(File) :-
+    turn_test_failure_at(Turn, Pkg, Test, File, Line, Msg, Count).
+context_focal(File) :-
+    turn_test_build_failure(Turn, Pkg, File, Line, Msg).
+
+# Rank 1: what is wrong with it. Shown of every selected entity.
+context_view(/turn_test_failure_at, 7, 3, 1, /any).
+context_view(/turn_test_build_failure, 5, 2, 1, /any).
+context_view(/diagnostic, 5, 1, 1, /any).
+context_view(/intelligence_chestertons_fence, 2, 0, 1, /any).
+
+# Rank 2: where it sits. One or two rows an entity.
+context_view(/modified, 1, 0, 2, /any).
+context_view(/import_cycle_member, 2, 0, 2, /any).
+context_view(/intelligence_dependent_count, 2, 0, 2, /any).
+context_view(/file_unit, 2, 0, 2, /any).
+context_view(/test_file_for, 2, 0, 2, /any).
+context_view(/test_file_for, 2, 1, 2, /any).
+context_view(/session_note, 2, 0, 2, /any).
+
+# Rank 3: what it reaches. Shown of the entities being worked on.
+context_view(/import_unit, 2, 0, 3, /focal).
+
+# Rank 4: its surface, the bulky view. Shown of the entities being worked on,
+# after every compact view of every selected entity has had its turn.
+context_view(/symbol_graph, 5, 3, 4, /focal).
+
+# =============================================================================
 # C4: Dependency-Graph-Driven Reachability Rules
 # Derives context_reachable(File, HopLevel) and context_file_priority(File, Priority)
 # via bounded hop traversal from focal files through dependency_link.

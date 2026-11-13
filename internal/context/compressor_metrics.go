@@ -583,10 +583,6 @@ func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts
 	}
 
 	// Collect (fact string, priority score) pairs from kernel results.
-	type prioritized struct {
-		factStr  string
-		priority float64
-	}
 	pairs := make([]prioritized, 0, len(kernelFacts))
 	for _, kf := range kernelFacts {
 		// should_include_context has arity 2: (Fact, Priority)
@@ -645,14 +641,26 @@ func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts
 		seen[key] = struct{}{}
 		scored = append(scored, ScoredFact{Fact: f, Score: priority})
 	}
+	// A name that spells a fact is that fact, at its priority.
+	var entities []prioritized
 	for _, p := range pairs {
 		if f, found := factLookup[p.factStr]; found {
 			addFact(f, p.priority)
 			continue
 		}
-		// Entity form (file path from C4 traversal, intent target, symbol):
-		// pull in every fact that names it. Deterministic because allFacts
-		// ordering is stable and pairs is sorted.
+		if n := len(entities); n == 0 || entities[n-1].factStr != p.factStr {
+			entities = append(entities, p)
+		}
+	}
+	// A name that is an entity is shown through the views the kernel derived
+	// for it (context_view), read from the session's whole kernel...
+	for _, sf := range c.viewFacts(dedupeEntities(entities), c.config.AtomReserve) {
+		addFact(sf.Fact, sf.Score)
+	}
+	// ...and then through whatever else mentions it in this kernel's own
+	// facts. Deterministic because allFacts ordering is stable and pairs is
+	// sorted.
+	for _, p := range entities {
 		for _, f := range byEntity[p.factStr] {
 			addFact(f, p.priority)
 		}
@@ -668,6 +676,20 @@ func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts
 	// priorities top out at 100, so SelectWithinBudget's threshold filter (default
 	// 105) would silently prune every kernel fact and ship an empty context.
 	return c.activation.SelectWithinBudgetPreFiltered(scored, c.config.AtomReserve)
+}
+
+// dedupeEntities keeps each entity once, at its first (highest) priority.
+func dedupeEntities(entities []prioritized) []prioritized {
+	seen := make(map[string]struct{}, len(entities))
+	out := entities[:0:0]
+	for _, e := range entities {
+		if _, dup := seen[e.factStr]; dup {
+			continue
+		}
+		seen[e.factStr] = struct{}{}
+		out = append(out, e)
+	}
+	return out
 }
 
 // resolveNamedEntities answers, for the named strings only, the two questions

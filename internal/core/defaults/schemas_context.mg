@@ -37,6 +37,26 @@ Decl should_include_context(Fact, Priority) bound [/string, /name].
 # warns when it does.
 Decl context_must_retain(Predicate) bound [/name].
 
+# =============================================================================
+# CC.3: Entity views -- what the window shows of a selected entity
+# =============================================================================
+
+# context_view(Predicate, Arity, Position, Rank, Scope) - the facts of Predicate
+# (of that arity) whose argument at Position is an entity the turn selected
+# (should_include_context) describe that entity and enter the active context.
+# Rank: views fill the atom budget rank by rank across the selected entities,
+#   lowest first, so a bulky view of one entity cannot crowd out the compact
+#   views of the others.
+# Scope: /focal - shown only of the entities the turn is working on
+#   (context_focal); /any - shown of every selected entity.
+# Consumed by Compressor.viewFacts (internal/context/entity_views.go), which
+# reads the rows from the session's whole kernel through the argument index.
+Decl context_view(Predicate, Arity, Position, Rank, Scope) bound [/name, /number, /number, /number, /name].
+
+# context_focal(Entity) - an entity the turn is working on, as distinct from
+# the neighbourhood selected around it.
+Decl context_focal(Entity) bound [/string].
+
 # session_note(Key, Value) - a short-term observation the model recorded for
 # this session with the piggyback memory operation "note"
 # (protocol/piggyback/memory_ops), e.g. session_note("current_focus",

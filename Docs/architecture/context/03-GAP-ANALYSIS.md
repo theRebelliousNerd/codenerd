@@ -123,3 +123,35 @@ A saved or current file/element revision of unavailable or absent cannot establi
 | GAP-CTX-UNRESOLVED-REVISION | Unverifiable revision freshness | `sameWorkingRevision` rejects equal `absent` and `unavailable` sentinels while retaining `nonfile` (`internal/context/working_set.go:179`); `working_stale` applies the same rule in the Mangle ledger (`internal/context/working_set.mg:192`). | Required contract above | P1 | Implemented; focused tests passed; aggregate verification pending | Existing package interfaces | Unavailable/absent saved-and-current revisions are stale through Recall and Ledger; nonfile and resolvable unchanged controls remain current. |
 
 **Verified current:** `TestWorkingSetRecall_UnresolvableRevisionIsStale` (`internal/context/working_set_test.go:178`) and `TestWorkingLedger_ARecalledUnresolvableResultStillDrops` (`internal/context/working_ledger_test.go:288`) pass with absent/unavailable negatives and nonfile/unchanged-file controls. Recall returns the stale flag; consumers still have to honor it when using archived bodies.
+
+## Required contract: what the window shows of a selected entity is derived
+
+The kernel selects the entities a turn's active context is about
+(`should_include_context(Entity, Priority)`: the intent target, focused and
+modified files, failing tests' files, their import neighbourhood). Which facts
+about each entity enter the window is the second half of the same decision and
+belongs to the kernel too:
+
+- `context_view(Predicate, Arity, Position, Rank, Scope)` names a relation that
+  describes an entity: the facts of `Predicate` (of that arity) whose argument
+  at `Position` is the entity. `Rank` orders an entity's views in the block,
+  lowest first. `Scope` is `/focal` for a view shown only of the entities the
+  turn is working on, `/any` for one shown of every selected entity.
+- `context_focal(Entity)` derives the entities the turn is working on (intent
+  target, focus, modified files, files a failing test or build names), as
+  distinct from the neighbourhood selected around them.
+- Go executes the decision: rank by rank, and within a rank entity by entity in
+  priority order, it reads the matching rows of each view that applies from the
+  session's whole kernel through the argument index, and budgets the result. A
+  bulky view of one entity therefore cannot crowd out the compact views of the
+  others. Go names no predicate and holds no list of what describes a file.
+
+The facts must come from every shard that holds or derives them. An entity the
+kernel selected and no view describes still resolves against the facts that
+mention it in the compressor's own kernel, as before.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CTX-ENTITY-VIEWS | Derived entity views across shards | `buildKernelDerivedContext` resolves a selected entity to "every fact that carries it as an argument" among the facts of the compressor's own kernel. In a chat session that kernel is the Cortex's catch-all shard, which holds none of the world model: a file selected at `/p100` contributes no symbol, import, test-pairing or failure fact to the block. What is shown is an accident of which shard a predicate lives in, and no policy says what describes an entity. | Required contract above | P1 | Implemented; focused tests pass; not yet observed on a live session | `core.BoundRows`; `Compressor.SetKernelReader` | On a domain Cortex with a file's world facts in the world shard and the file modified, the built context carries that file's symbols and import rows, compact views of every entity before the bulky view of any; a file selected only as a neighbour carries the `/any` views and not the `/focal` ones; a policy that adds a view changes the block with no Go change; a live chat turn's prompt dump shows the views of the files it worked on. |
+
+**Verified current:** `TestDomainCortex_ASelectedFileIsShownThroughItsViews` (`internal/system/domain_cortex_entity_views_test.go:22`) covers every exit clause but the last; `Compressor.viewFacts` (`internal/context/entity_views.go:103`). The live-session clause is open.
