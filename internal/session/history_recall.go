@@ -58,6 +58,18 @@ func (h historyRecall) Recall(ctx context.Context, id string, offset, limit int)
 		}
 		return h.working.Recall(ctx, id, offset, limit)
 	}
+	// An eviction handle is obs:hist: and sixteen hex digits, minted only by
+	// an eviction notice. obs:hist: before a bare number is an observation's
+	// short handle, as the working section shows it, with the wrong prefix:
+	// live 2026-11-12 three recalls of obs:hist:1 and obs:hist:27 failed as
+	// "names none", each costing a model round for the handle the model had
+	// read correctly. The number is the working set's to answer.
+	if n := strings.TrimPrefix(trimmed, historyHandlePrefix); isShortHandle(n) {
+		if h.working == nil {
+			return "", fmt.Errorf("working context recall unavailable")
+		}
+		return h.working.Recall(ctx, n, offset, limit)
+	}
 	if len(h.evicted) == 0 {
 		return "", fmt.Errorf("no conversation messages are evicted from this turn's window; %s names none", trimmed)
 	}
@@ -109,4 +121,18 @@ func renderEvictedHistory(evicted []types.Message) string {
 		b.WriteString(m.Text)
 	}
 	return b.String()
+}
+
+// isShortHandle reports whether s is a working observation's short handle: a
+// non-empty run of decimal digits, never an eviction handle's sixteen hex.
+func isShortHandle(s string) bool {
+	if s == "" || len(s) >= 16 {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }

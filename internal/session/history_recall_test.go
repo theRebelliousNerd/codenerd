@@ -110,3 +110,30 @@ func TestHistoryRecall_NamesTheCurrentHandleForAStaleOne(t *testing.T) {
 		t.Fatalf("an observation id did not go to the working set: %v", err)
 	}
 }
+
+// An observation's short handle written with the eviction prefix is the
+// working set's to answer, not a failed recall: the model read the number
+// right. A real eviction handle with nothing evicted still says so.
+func TestHistoryRecall_AShortHandleUnderTheEvictionPrefixGoesToTheWorkingSet(t *testing.T) {
+	t.Parallel()
+	working := &fixedRecall{bodies: map[string]string{"27": "the archived read of kernel_query.go"}}
+	recall := historyRecall{working: working}
+	page, err := recall.Recall(context.Background(), historyHandlePrefix+"27", 0, 0)
+	if err != nil || page != "the archived read of kernel_query.go" {
+		t.Fatalf("obs:hist:27 = %q, %v; want observation 27", page, err)
+	}
+	if _, err := recall.Recall(context.Background(), historyHandlePrefix+"00000000000000ab", 0, 0); err == nil ||
+		!strings.Contains(err.Error(), "names none") {
+		t.Fatalf("an eviction handle with nothing evicted = %v, want the refusal", err)
+	}
+}
+
+// fixedRecall answers recall from a table.
+type fixedRecall struct{ bodies map[string]string }
+
+func (f *fixedRecall) Recall(_ context.Context, id string, _, _ int) (string, error) {
+	if b, ok := f.bodies[id]; ok {
+		return b, nil
+	}
+	return "", fmt.Errorf("unknown observation %s", id)
+}
