@@ -1,8 +1,10 @@
 package chat
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,5 +94,28 @@ func TestSelfRepair_ABudgetVerdictForAnotherJobStopsNothing(t *testing.T) {
 	}
 	if m.selfRepair.openFixJob() == "" {
 		t.Fatal("the chain was closed")
+	}
+}
+
+// The attempt's note names the budget the chain ran past, as the kernel
+// derived it: the retry is told it spent its tokens, not its time.
+func TestSelfRepair_ATokenBudgetVerdictIsRecordedAsTokens(t *testing.T) {
+	m, _, ledger := overBudgetFixture(t)
+
+	m, _ = m.handleFixOverBudget(selfRepairBudgetMsg{
+		jobs:  []string{"self-repair-budget"},
+		kinds: map[string][]string{"self-repair-budget": {"tokens"}},
+	})
+
+	a, ok := ledger.Get("timing:kernel.Query")
+	if !ok || a.Status != problemlog.RepairOverBudget {
+		t.Fatalf("attempt = %+v, want over_budget", a)
+	}
+	want := fmt.Sprintf("%d-token budget", m.Config.Logging.SelfRepairFixTokenBudget())
+	if !strings.Contains(a.Note, want) {
+		t.Fatalf("note %q does not name the %s", a.Note, want)
+	}
+	if strings.Contains(a.Note, m.Config.Logging.SelfRepairFixBudget().String()) {
+		t.Fatalf("note %q names the time budget, which was not the one run past", a.Note)
 	}
 }

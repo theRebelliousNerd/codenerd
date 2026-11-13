@@ -44,6 +44,11 @@ Decl self_repair_fix_open(Job, StartUnix) bound [/string, /number].
 # The chat stops it, undoes its writes and records the attempt /over_budget,
 # which counts toward Failures like /failed.
 Decl self_repair_fix_over_budget(Job) bound [/string].
+# What an open fix chain has spent in model tokens since it began, measured by
+# the chat from the session's usage (asserted with the budget question).
+Decl self_repair_fix_spent(Job, Tokens) bound [/string, /number].
+# Which budget an open fix chain has run past: /time or /tokens.
+Decl self_repair_fix_budget_spent(Job, Kind) bound [/string, /name].
 
 Decl self_timing_external(System) bound [/string].
 Decl self_repair_protected_path(Match) bound [/string].
@@ -79,6 +84,7 @@ Decl self_problem_from_repair(Signature, Job) bound [/string, /string].
 config_param_required(/logging, /logging_self_repair_enabled).
 config_param_required(/logging, /logging_self_repair_cooldown_sec).
 config_param_required(/logging, /logging_self_repair_fix_budget_sec).
+config_param_required(/logging, /logging_self_repair_fix_budget_tokens).
 config_param_required(/logging, /logging_self_repair_max_failures).
 config_param_required(/logging, /logging_self_repair_max_jobs).
 config_param_required(/logging, /logging_self_repair_verify_window_sec).
@@ -303,12 +309,25 @@ self_repair_regressed(Target) :-
 # its own turn's gates (a step plan that went on after a failed step,
 # specialist reviews, a pinning repair) with no verdict. An unattended chain
 # has a budget; past it the work is stopped and undone, and the retry is told.
-self_repair_fix_over_budget(Job) :-
+self_repair_fix_budget_spent(Job, /time) :-
     self_repair_fix_open(Job, Start),
     self_repair_clock(Now),
     config_param(/logging_self_repair_fix_budget_sec, Budget),
     Deadline = fn:plus(Start, Budget),
     Now > Deadline.
+
+# The clock is not the only thing a chain spends. The same live chain put
+# 1.55M input tokens into one step writing tests for a change an earlier step
+# never made, well inside its time budget. No measurement of the spend is no
+# verdict: the time budget still stands.
+self_repair_fix_budget_spent(Job, /tokens) :-
+    self_repair_fix_open(Job, _),
+    self_repair_fix_spent(Job, Spent),
+    config_param(/logging_self_repair_fix_budget_tokens, Budget),
+    Spent > Budget.
+
+self_repair_fix_over_budget(Job) :-
+    self_repair_fix_budget_spent(Job, _).
 
 # --- What a self-repair may never touch ----------------------------------------
 

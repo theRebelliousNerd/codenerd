@@ -59,6 +59,7 @@ func (m Model) beginFixTurn(step chainStep) {
 	m.selfRepair.mu.Lock()
 	m.selfRepair.journal = session.NewWriteJournal()
 	m.selfRepair.journalJob = step.Job
+	m.selfRepair.fixStartTokens = m.sessionTokenTotal()
 	m.selfRepair.mu.Unlock()
 	ledger, err := m.selfRepair.ledgerFor(m.workspace)
 	if err != nil {
@@ -105,7 +106,9 @@ func (m Model) settleFixTurn() Model {
 	m.selfRepair.mu.Lock()
 	fixTurn, journal, job := m.selfRepair.fixTurn, m.selfRepair.journal, m.selfRepair.journalJob
 	overBudget := job != "" && m.selfRepair.overBudgetJob == job
+	budget := m.fixBudgetPhrase(m.selfRepair.overBudgetKinds)
 	m.selfRepair.fixTurn, m.selfRepair.journal, m.selfRepair.journalJob, m.selfRepair.overBudgetJob = 0, nil, "", ""
+	m.selfRepair.overBudgetKinds, m.selfRepair.fixStartTokens = nil, 0
 	m.selfRepair.mu.Unlock()
 	if fixTurn == 0 && journal == nil {
 		return m
@@ -157,13 +160,13 @@ func (m Model) settleFixTurn() Model {
 	if overBudget && !installed {
 		// The chat stopped it, not the user: the budget's verdict stands.
 		stopped = false
-		status, note = problemlog.RepairOverBudget, fmt.Sprintf("its fix chain ran past its %s budget and was stopped", m.Config.Logging.SelfRepairFixBudget())
+		status, note = problemlog.RepairOverBudget, fmt.Sprintf("its fix chain ran past its %s budget and was stopped", budget)
 	}
 	var n int
 	switch {
 	case parked != "":
 		status = problemlog.RepairParked
-		note = fmt.Sprintf("its fix chain ran past its %s budget with its package tests green and the self-rebuild not run; the change is parked at %s with that evidence and is finished before a new target", m.Config.Logging.SelfRepairFixBudget(), parked)
+		note = fmt.Sprintf("its fix chain ran past its %s budget with its package tests green and the self-rebuild not run; the change is parked at %s with that evidence and is finished before a new target", budget, parked)
 		n, err = ledger.Park(job, parked, note, now)
 	case job != "":
 		n, err = ledger.EndJob(job, status, note, now)
@@ -180,9 +183,9 @@ func (m Model) settleFixTurn() Model {
 	}
 	switch {
 	case n > 0 && status == problemlog.RepairParked:
-		m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair: the fix chain for %d target(s) ran past its %s budget with its own package tests green; the change is parked (%s) and will be finished -- the self-rebuild run on it -- before any new target.%s_", n, m.Config.Logging.SelfRepairFixBudget(), parked, sentence(undoNote)))
+		m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair: the fix chain for %d target(s) ran past its %s budget with its own package tests green; the change is parked (%s) and will be finished -- the self-rebuild run on it -- before any new target.%s_", n, budget, parked, sentence(undoNote)))
 	case n > 0 && status == problemlog.RepairOverBudget:
-		m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair: the fix chain for %d target(s) ran past its %s budget; they are recorded as over budget, which counts as a failure.%s_", n, m.Config.Logging.SelfRepairFixBudget(), sentence(undoNote)))
+		m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair: the fix chain for %d target(s) ran past its %s budget; they are recorded as over budget, which counts as a failure.%s_", n, budget, sentence(undoNote)))
 	case n > 0 && stopped:
 		m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair: you stopped the fix turn for %d target(s); they are recorded as stopped, not failed.%s_", n, sentence(undoNote)))
 	case n > 0:

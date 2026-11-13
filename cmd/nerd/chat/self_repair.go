@@ -55,6 +55,12 @@ type selfRepairState struct {
 	// overBudgetJob is the fix chain the kernel derived as over budget and
 	// the chat stopped (self_repair_budget.go); settleFixTurn records it so.
 	overBudgetJob string
+	// overBudgetKinds says which budgets that chain ran past ("time",
+	// "tokens"), as the kernel derived them.
+	overBudgetKinds []string
+	// fixStartTokens is the session's token total when the open fix chain
+	// began; what the chain has spent is the total now less this.
+	fixStartTokens int64
 	// gen numbers the timer loop; a tick of an older loop stops.
 	gen uint64
 	// planning is set while a look's plan is made off the Update thread

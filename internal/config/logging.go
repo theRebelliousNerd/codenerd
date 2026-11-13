@@ -68,6 +68,11 @@ type LoggingConfig struct {
 	// and it is stopped, undone and recorded. Default
 	// DefaultSelfRepairFixBudgetSec.
 	SelfRepairFixBudgetSec int `yaml:"self_repair_fix_budget_sec" json:"self_repair_fix_budget_sec,omitempty"`
+	// SelfRepairFixBudgetTokens is how many model tokens (input plus output)
+	// an unattended fix chain may spend, from its first step, before the
+	// kernel derives that it is over budget. Default
+	// DefaultSelfRepairFixBudgetTokens.
+	SelfRepairFixBudgetTokens int `yaml:"self_repair_fix_budget_tokens" json:"self_repair_fix_budget_tokens,omitempty"`
 	// SessionTTL is how long a session folder (.nerd/sessions/<id>/) is kept
 	// after its last activity, as a duration string ("14d", "36h"). Unset keeps
 	// DefaultSessionTTL; "0" or "off" keeps every session forever. Expired
@@ -126,6 +131,7 @@ const (
 	DefaultSelfRepairCheckTimeoutSec  = 300
 	DefaultSelfRepairNoDefectRegrowth = 2
 	DefaultSelfRepairFixBudgetSec     = 1500
+	DefaultSelfRepairFixBudgetTokens  = 3000000
 )
 
 // orDefault is v when the config set it, else def.
@@ -158,6 +164,7 @@ func (c *LoggingConfig) Params() []Param {
 		{Key: "/logging_self_optimize_min_count", Value: int64(orDefault(l.SelfOptimizeMinCount, DefaultSelfOptimizeMinCount))},
 		{Key: "/logging_self_repair_no_defect_regrowth", Value: int64(c.SelfRepairNoDefectRegrowthFactor())},
 		{Key: "/logging_self_repair_fix_budget_sec", Value: int64(orDefault(l.SelfRepairFixBudgetSec, DefaultSelfRepairFixBudgetSec))},
+		{Key: "/logging_self_repair_fix_budget_tokens", Value: int64(orDefault(l.SelfRepairFixBudgetTokens, DefaultSelfRepairFixBudgetTokens))},
 	}
 }
 
@@ -187,6 +194,16 @@ func (c *LoggingConfig) SelfRepairFixBudget() time.Duration {
 		v = c.SelfRepairFixBudgetSec
 	}
 	return time.Duration(orDefault(v, DefaultSelfRepairFixBudgetSec)) * time.Second
+}
+
+// SelfRepairFixTokenBudget is how many model tokens an unattended fix chain
+// may spend. Nil-safe.
+func (c *LoggingConfig) SelfRepairFixTokenBudget() int64 {
+	v := 0
+	if c != nil {
+		v = c.SelfRepairFixBudgetTokens
+	}
+	return int64(orDefault(v, DefaultSelfRepairFixBudgetTokens))
 }
 
 // SelfRepairCheckTimeout bounds each self-check step of a rebuilt binary.

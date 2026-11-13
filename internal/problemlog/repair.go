@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -533,16 +534,22 @@ const (
 	RepairFixOpenPredicate = "self_repair_fix_open"
 	// RepairOverBudgetPredicate is derived: an open fix chain past its budget.
 	RepairOverBudgetPredicate = "self_repair_fix_over_budget"
-	RepairFixingPredicate     = "self_repair_fixing"
-	RepairDuePredicate        = "self_repair_due"
-	RepairFinishDuePredicate  = "self_repair_finish_due"
-	RepairShardPredicate      = "self_repair_shard"
-	RepairVerifiedPredicate   = "self_repair_verified"
-	RepairRegressedPred       = "self_repair_regressed"
+	// RepairFixSpentPredicate is what an open fix chain has spent in model
+	// tokens, measured by the caller (ReplaceFixSpent).
+	RepairFixSpentPredicate = "self_repair_fix_spent"
+	// RepairBudgetSpentPredicate is derived: which budget (/time, /tokens)
+	// an open fix chain has run past.
+	RepairBudgetSpentPredicate = "self_repair_fix_budget_spent"
+	RepairFixingPredicate      = "self_repair_fixing"
+	RepairDuePredicate         = "self_repair_due"
+	RepairFinishDuePredicate   = "self_repair_finish_due"
+	RepairShardPredicate       = "self_repair_shard"
+	RepairVerifiedPredicate    = "self_repair_verified"
+	RepairRegressedPred        = "self_repair_regressed"
 )
 
 // RepairPredicates are the base predicates ReplaceRepair writes.
-var RepairPredicates = []string{RepairAttemptPredicate, RepairBaselinePredicate, RepairEvidencePredicate, RepairClockPredicate, RepairWindowPredicate, RepairFixOpenPredicate}
+var RepairPredicates = []string{RepairAttemptPredicate, RepairBaselinePredicate, RepairEvidencePredicate, RepairClockPredicate, RepairWindowPredicate, RepairFixOpenPredicate, RepairFixSpentPredicate}
 
 // Facts projects the ledger as self_repair_attempt, self_repair_baseline and
 // self_repair_no_defect_evidence rows.
@@ -612,6 +619,42 @@ func ReplaceRepair(k Kernel, l *RepairLedger, now time.Time) error {
 		errs = append(errs, fmt.Errorf("problemlog: assert %d self-repair facts: %w", len(facts), err))
 	}
 	return errors.Join(errs...)
+}
+
+// ReplaceFixSpent tells the kernel what the open fix chain of job has spent in
+// model tokens since it began. ReplaceRepair retracts the measurement with the
+// rest of the ledger's facts, so it is asserted after it.
+func ReplaceFixSpent(k Kernel, job string, tokens int64) error {
+	if k == nil {
+		return errors.New("problemlog: nil Kernel")
+	}
+	if err := k.Retract(RepairFixSpentPredicate); err != nil {
+		return fmt.Errorf("problemlog: retract %s: %w", RepairFixSpentPredicate, err)
+	}
+	if job == "" {
+		return nil
+	}
+	return k.AssertBatch([]types.Fact{{Predicate: RepairFixSpentPredicate, Args: []any{types.MangleString(job), tokens}}})
+}
+
+// OverBudgetKinds asks the kernel which budgets each open fix chain has run
+// past (self_repair_fix_budget_spent): "time", "tokens", sorted per job.
+func OverBudgetKinds(k Querier) (map[string][]string, error) {
+	rows, err := k.Query(RepairBudgetSpentPredicate)
+	if err != nil {
+		return nil, fmt.Errorf("problemlog: query %s: %w", RepairBudgetSpentPredicate, err)
+	}
+	out := make(map[string][]string)
+	for _, f := range rows {
+		if len(f.Args) == 2 {
+			job := factString(f.Args[0])
+			out[job] = append(out[job], strings.TrimPrefix(factString(f.Args[1]), "/"))
+		}
+	}
+	for job := range out {
+		sort.Strings(out[job])
+	}
+	return out, nil
 }
 
 // OverBudgetJobs asks the kernel which open fix chains have run past their

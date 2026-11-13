@@ -3,6 +3,7 @@ package chat
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -24,7 +25,38 @@ import (
 // pinning repair -- with no verdict and nothing to end it.
 
 // selfRepairBudgetMsg names the fix chains the kernel derived as over budget.
-type selfRepairBudgetMsg struct{ jobs []string }
+type selfRepairBudgetMsg struct {
+	jobs  []string
+	kinds map[string][]string
+}
+
+// sessionTokenTotal is what the session has spent in model tokens so far, zero
+// when usage is not tracked (the token budget then derives nothing and the
+// time budget stands alone).
+func (m Model) sessionTokenTotal() int64 {
+	if m.usageTracker == nil {
+		return 0
+	}
+	return m.usageTracker.SessionTokens(m.sessionID).Total
+}
+
+// fixBudgetPhrase names the budgets a chain ran past, for the transcript and
+// the ledger note: "25m0s", "3000000-token", or both.
+func (m Model) fixBudgetPhrase(kinds []string) string {
+	var parts []string
+	for _, kind := range kinds {
+		switch kind {
+		case "time":
+			parts = append(parts, m.Config.Logging.SelfRepairFixBudget().String())
+		case "tokens":
+			parts = append(parts, fmt.Sprintf("%d-token", m.Config.Logging.SelfRepairFixTokenBudget()))
+		}
+	}
+	if len(parts) == 0 {
+		return m.Config.Logging.SelfRepairFixBudget().String()
+	}
+	return strings.Join(parts, " and ")
+}
 
 // openFixJob is the job of the fix chain whose journal is open, or "".
 func (s *selfRepairState) openFixJob() string {
@@ -46,12 +78,23 @@ func (m Model) checkFixBudgetCmd() tea.Cmd {
 	if err != nil {
 		return nil
 	}
-	now, kernel := m.selfRepair.clock(), m.kernel
+	now, kernel, job := m.selfRepair.clock(), m.kernel, m.selfRepair.openFixJob()
+	m.selfRepair.mu.Lock()
+	start := m.selfRepair.fixStartTokens
+	m.selfRepair.mu.Unlock()
+	tracked, spent := m.usageTracker != nil, m.sessionTokenTotal()-start
 	return func() tea.Msg {
 		log := logging.Get(logging.CategoryKernel)
 		if err := problemlog.ReplaceRepair(kernel, ledger, now); err != nil {
 			log.Warn("%s self-repair facts: %v", selfDebugMarker, err)
 			return nil
+		}
+		// The spend is a measurement only where usage is tracked; an
+		// untracked session asserts none, and the time budget stands alone.
+		if tracked {
+			if err := problemlog.ReplaceFixSpent(kernel, job, spent); err != nil {
+				log.Warn("%s self-repair spend: %v", selfDebugMarker, err)
+			}
 		}
 		jobs, err := problemlog.OverBudgetJobs(kernel)
 		if err != nil {
@@ -61,7 +104,11 @@ func (m Model) checkFixBudgetCmd() tea.Cmd {
 		if len(jobs) == 0 {
 			return nil
 		}
-		return selfRepairBudgetMsg{jobs: jobs}
+		kinds, err := problemlog.OverBudgetKinds(kernel)
+		if err != nil {
+			log.Warn("%s self-repair budget kinds: %v", selfDebugMarker, err)
+		}
+		return selfRepairBudgetMsg{jobs: jobs, kinds: kinds}
 	}
 }
 
@@ -78,12 +125,13 @@ func (m Model) handleFixOverBudget(msg selfRepairBudgetMsg) (Model, tea.Cmd) {
 	m.selfRepair.mu.Lock()
 	already := m.selfRepair.overBudgetJob == job
 	m.selfRepair.overBudgetJob = job
+	m.selfRepair.overBudgetKinds = msg.kinds[job]
 	fixTurn := m.selfRepair.fixTurn
 	m.selfRepair.mu.Unlock()
 	if already {
 		return m, nil
 	}
-	budget := m.Config.Logging.SelfRepairFixBudget()
+	budget := m.fixBudgetPhrase(msg.kinds[job])
 	logging.Get(logging.CategoryKernel).Info("%s self-repair fix chain %s is over its %s budget; stopping it", selfDebugMarker, job, budget)
 	owner := m.turn.current()
 	if owner == 0 || owner != fixTurn {
