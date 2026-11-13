@@ -3,13 +3,65 @@ package core
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"sort"
 	"strings"
+	"sync"
+	"weak"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/mangle"
 
+	"codeberg.org/TauCeti/mangle-go/analysis"
 	"codeberg.org/TauCeti/mangle-go/ast"
 )
+
+// bareDeclIndexCache groups an analyzed program's Decls by predicate symbol
+// so bare-predicate queries avoid scanning every Decl on each call.
+// analysis.ProgramInfo is immutable after analysis and shared across kernels
+// via the compiled-program cache, so an entry stays valid for the program's
+// lifetime. The key is a weak pointer and a cleanup removes the entry when
+// the program is collected: a policy reload or a rebuilt program does not
+// leave its index behind. Sandbox trial programs bypass the cache.
+var bareDeclIndexCache sync.Map // map[weak.Pointer[analysis.ProgramInfo]]map[string][]ast.PredicateSym
+
+// declSymsForBareQuery returns the declared predicate symbols sharing the
+// given symbol, building and caching the symbol index once per program.
+// The matched set equals the linear scan it replaces; callers still use
+// store.GetFacts plus atomToFact per arity, so results are unchanged.
+func declSymsForBareQuery(info *analysis.ProgramInfo, symbol string) ([]ast.PredicateSym, bool) {
+	if info == nil || info.Decls == nil {
+		return nil, false
+	}
+	key := weak.Make(info)
+	bySymbol, ok := loadBareDeclIndex(key)
+	if !ok {
+		built := make(map[string][]ast.PredicateSym, len(info.Decls))
+		for pred := range info.Decls {
+			built[pred.Symbol] = append(built[pred.Symbol], pred)
+		}
+		for _, syms := range built {
+			sort.Slice(syms, func(i, j int) bool { return syms[i].Arity < syms[j].Arity })
+		}
+		if actual, loaded := bareDeclIndexCache.LoadOrStore(key, built); loaded {
+			bySymbol, _ = actual.(map[string][]ast.PredicateSym)
+		} else {
+			bySymbol = built
+			runtime.AddCleanup(info, func(k weak.Pointer[analysis.ProgramInfo]) { bareDeclIndexCache.Delete(k) }, key)
+		}
+	}
+	syms := bySymbol[symbol]
+	return syms, len(syms) > 0
+}
+
+func loadBareDeclIndex(key weak.Pointer[analysis.ProgramInfo]) (map[string][]ast.PredicateSym, bool) {
+	cached, ok := bareDeclIndexCache.Load(key)
+	if !ok {
+		return nil, false
+	}
+	bySymbol, ok := cached.(map[string][]ast.PredicateSym)
+	return bySymbol, ok
+}
 
 // =============================================================================
 // QUERY METHODS
@@ -116,10 +168,27 @@ func (k *RealKernel) QueryContext(ctx context.Context, predicate string) ([]Fact
 				return nil
 			})
 		}
-	} else {
+	} else if k.sandbox {
 		matchedDecls := 0
 		for pred := range k.programInfo.Decls {
 			if pred.Symbol == predicateName {
+				predicateFound = true
+				matchedDecls++
+				perArityCount := 0
+				k.store.GetFacts(ast.NewQuery(pred), func(a ast.Atom) error {
+					fact := atomToFact(a)
+					results = append(results, fact)
+					perArityCount++
+					return nil
+				})
+				logging.KernelDebug("Query: decl %s/%d -> %d facts", pred.Symbol, pred.Arity, perArityCount)
+			}
+		}
+		logging.KernelDebug("Query: predicate=%s matchedDecls=%d totalResults=%d", predicateName, matchedDecls, len(results))
+	} else {
+		matchedDecls := 0
+		if declSyms, found := declSymsForBareQuery(k.programInfo, predicateName); found {
+			for _, pred := range declSyms {
 				predicateFound = true
 				matchedDecls++
 				perArityCount := 0

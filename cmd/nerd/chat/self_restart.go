@@ -156,6 +156,13 @@ func (m Model) handleRestartCheck() (Model, tea.Cmd) {
 	if !m.restarter.ShouldRestart(m.restartBusy()) {
 		return m, restartCheckTick()
 	}
+	// The fix chain's write journal lives in this process: settle it before
+	// the exec, or a fix that was stopped or failed leaves its edits in the
+	// tree with nothing left to undo them. Observed live: Ctrl+X on a fix
+	// turn with a rebuild pending restarted within the second, and the new
+	// process found the edits, no saved diff, and an attempt it could only
+	// call failed.
+	m = m.settleFixTurn()
 	st := m.restartState()
 	m.restartRequest = &st
 	return m, tea.Quit
