@@ -2,6 +2,7 @@ package context
 
 import (
 	"fmt"
+	"iter"
 	"slices"
 	"sort"
 	"strconv"
@@ -562,20 +563,6 @@ func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts
 		return nil
 	}
 
-	// Two lookups: exact fact string, and entity -> facts mentioning it.
-	factLookup := make(map[string]core.Fact, len(allFacts))
-	byEntity := make(map[string][]core.Fact, len(allFacts))
-	for _, f := range allFacts {
-		factLookup[f.String()] = f
-		for _, arg := range f.Args {
-			s, ok := arg.(string)
-			if !ok || s == "" {
-				continue
-			}
-			byEntity[s] = append(byEntity[s], f)
-		}
-	}
-
 	// parsePriority converts /pN atom to numeric score.
 	// "/p100" -> 100.0, "/p95" -> 95.0, etc. Returns 0 on parse failure.
 	parsePriority := func(priorityArg any) float64 {
@@ -632,6 +619,19 @@ func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts
 		return pairs[i].factStr < pairs[j].factStr
 	})
 
+	// Two lookups, for the entities the kernel named and nothing else: the
+	// exact fact string, and entity -> facts mentioning it. They used to be
+	// built for every fact in the kernel -- each formatted to a string, each
+	// string argument appended to a map -- so a context build over a million
+	// facts made two million-entry maps to answer a few dozen lookups.
+	factLookup, byEntity := resolveNamedEntities(allFacts, func(yield func(string) bool) {
+		for _, p := range pairs {
+			if !yield(p.factStr) {
+				return
+			}
+		}
+	})
+
 	// Build ScoredFact list for facts that exist in the kernel's fact store.
 	// pairs is already sorted by priority descending, so the first time a fact
 	// is seen it carries its highest kernel priority.
@@ -668,6 +668,80 @@ func (c *Compressor) buildKernelDerivedContext(kernelFacts []core.Fact, allFacts
 	// priorities top out at 100, so SelectWithinBudget's threshold filter (default
 	// 105) would silently prune every kernel fact and ship an empty context.
 	return c.activation.SelectWithinBudgetPreFiltered(scored, c.config.AtomReserve)
+}
+
+// resolveNamedEntities answers, for the named strings only, the two questions
+// buildKernelDerivedContext asks of the fact store: which fact is spelled
+// exactly so (core.Fact.String()), and which facts carry the string as an
+// argument, in the store's order. One pass over the facts; a fact is formatted
+// only when a name could be its spelling (it starts with the fact's predicate).
+func resolveNamedEntities(allFacts []core.Fact, names iter.Seq[string]) (map[string]core.Fact, map[string][]core.Fact) {
+	wanted := make(map[string]struct{})
+	// spelled holds, per predicate, the names that could be a fact of it:
+	// "pred(...)." or the zero-arity "pred.".
+	spelled := make(map[string][]string)
+	for name := range names {
+		if name == "" {
+			continue
+		}
+		if _, dup := wanted[name]; dup {
+			continue
+		}
+		wanted[name] = struct{}{}
+		if open := strings.IndexByte(name, '('); open > 0 {
+			spelled[name[:open]] = append(spelled[name[:open]], name)
+		} else if strings.HasSuffix(name, ".") {
+			pred := strings.TrimSuffix(name, ".")
+			spelled[pred] = append(spelled[pred], name)
+		}
+	}
+	factLookup := make(map[string]core.Fact)
+	byEntity := make(map[string][]core.Fact)
+	if len(wanted) == 0 {
+		return factLookup, byEntity
+	}
+	for _, f := range allFacts {
+		if candidates := spelled[f.Predicate]; len(candidates) > 0 && couldSpell(f, candidates) {
+			if spelling := f.String(); spelling != "" {
+				if _, ok := wanted[spelling]; ok {
+					factLookup[spelling] = f
+				}
+			}
+		}
+		for _, arg := range f.Args {
+			s, ok := arg.(string)
+			if !ok || s == "" {
+				continue
+			}
+			if _, ok := wanted[s]; ok {
+				byEntity[s] = append(byEntity[s], f)
+			}
+		}
+	}
+	return factLookup, byEntity
+}
+
+// couldSpell is the cheap test before a fact is formatted: a spelling of f
+// carries f's first plain string argument verbatim, so a candidate that does
+// not contain it is not f. A string that formatting would escape (a quote, a
+// backslash, a control character) is not judged here; the fact is formatted.
+func couldSpell(f core.Fact, candidates []string) bool {
+	for _, arg := range f.Args {
+		s, ok := arg.(string)
+		if !ok || s == "" {
+			continue
+		}
+		if strings.ContainsAny(s, "\"\\\n\r\t") {
+			return true
+		}
+		for _, c := range candidates {
+			if strings.Contains(c, s) {
+				return true
+			}
+		}
+		return false
+	}
+	return true
 }
 
 // assertTurnAgeCategories asserts turn_age_category(TurnID, Category) facts into the kernel

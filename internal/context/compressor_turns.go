@@ -289,11 +289,9 @@ func (c *Compressor) recalcBudget(turnNumber int, workingTokens int) {
 	if c.kernel != nil {
 		allFacts = slices.Collect(c.kernel.GetAllFactsSeq())
 
-		// OPTIMIZATION: Use QueryAll for single predicate lookups too (more consistent)
-		if allFactsByPred, err := c.kernel.QueryAll(); err == nil {
-			if intents, ok := allFactsByPred["user_intent"]; ok && len(intents) > 0 {
-				currentIntent = &intents[len(intents)-1]
-			}
+		// Asked for by name: this was kernel.QueryAll(), a copy of every fact.
+		if intents, err := c.kernel.Query("user_intent"); err == nil && len(intents) > 0 {
+			currentIntent = &intents[len(intents)-1]
 		}
 	}
 

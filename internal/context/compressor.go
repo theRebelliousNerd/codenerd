@@ -153,25 +153,27 @@ func NewCompressor(kernel *core.RealKernel, localStorage *store.LocalStore, llmC
 
 // refreshActivationContextsLocked derives campaign/issue activation contexts from kernel facts.
 // Call only when c.mu is held.
-// OPTIMIZATION: Uses single QueryAll() instead of N separate Query() calls (10-50x faster).
 func (c *Compressor) refreshActivationContextsLocked() {
 	if c.kernel == nil || c.activation == nil {
 		return
 	}
 
-	// OPTIMIZATION: Fetch ALL facts once, then filter in memory
-	allFactsByPredicate, err := c.kernel.QueryAll()
-	if err != nil {
-		logging.Get(logging.CategoryContext).Warn("refreshActivationContextsLocked: QueryAll failed: %v", err)
-		return
-	}
-
-	// Helper to get facts by predicate from the map
+	// Each predicate is asked for by name, once per refresh. This was one
+	// kernel.QueryAll() "instead of N separate Query() calls": a copy of every
+	// fact the kernel holds (about a million with a world model loaded) to
+	// read a dozen relations of a few rows each.
+	asked := make(map[string][]core.Fact)
 	getFacts := func(pred string) []core.Fact {
-		if facts, ok := allFactsByPredicate[pred]; ok {
+		if facts, ok := asked[pred]; ok {
 			return facts
 		}
-		return nil
+		facts, err := c.kernel.Query(pred)
+		if err != nil {
+			logging.Get(logging.CategoryContext).Warn("refreshActivationContextsLocked: query %s failed: %v", pred, err)
+			facts = nil
+		}
+		asked[pred] = facts
+		return facts
 	}
 
 	c.refreshCampaignContextLocked(getFacts)
@@ -703,14 +705,13 @@ func (c *Compressor) BuildContext(ctx context.Context) (*CompressedContext, erro
 	logging.ContextDebug("Building context: %d total facts in kernel", len(allFacts))
 
 	// 2. Find current intent (for activation scoring)
-	// OPTIMIZATION: Already have allFacts organized by predicate from QueryAll
+	// One predicate, asked for by name. This was kernel.QueryAll() -- a copy of
+	// every fact the kernel holds, EDB and derived, about a million rows --
+	// taken on every context build to read user_intent out of it.
 	var currentIntent *core.Fact
-	allFactsByPred, err := c.kernel.QueryAll()
-	if err == nil {
-		if intentFacts, ok := allFactsByPred["user_intent"]; ok && len(intentFacts) > 0 {
-			currentIntent = &intentFacts[len(intentFacts)-1]
-			logging.ContextDebug("Current intent: %s", currentIntent.String())
-		}
+	if intentFacts, err := c.kernel.Query("user_intent"); err == nil && len(intentFacts) > 0 {
+		currentIntent = &intentFacts[len(intentFacts)-1]
+		logging.ContextDebug("Current intent: %s", currentIntent.String())
 	}
 
 	// 3. Score and filter facts using activation engine
