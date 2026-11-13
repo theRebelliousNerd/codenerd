@@ -3,6 +3,7 @@ package session
 
 import (
 	"codenerd/internal/approval"
+	"codenerd/internal/experts"
 	"context"
 	"fmt"
 	"strings"
@@ -77,6 +78,9 @@ type Spawner struct {
 	// reportJudge reads each subagent's final report for the /finish round
 	// (finish_round.go).
 	reportJudge *ReportJudge
+	// stepReader is the planned-step technology reading every subagent
+	// inherits (SetStepTechnologyReader).
+	stepReader experts.StepReader
 	// expertConsultant runs the shard-agent consultations the kernel derives
 	// for a subagent's turn (expert_spawn.go). A consultation is itself a
 	// subagent running as the agent, which expert_spawn never fires for.
@@ -312,6 +316,20 @@ func (s *Spawner) currentConsultEscalation() func(context.Context) context.Conte
 }
 
 // currentReportJudge reads the report-judge slot under the read lock.
+// SetStepTechnologyReader attaches the planned-step technology reading every
+// subagent spawned from here on inherits.
+func (s *Spawner) SetStepTechnologyReader(r experts.StepReader) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stepReader = r
+}
+
+func (s *Spawner) currentStepReader() experts.StepReader {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.stepReader
+}
+
 func (s *Spawner) currentReportJudge() *ReportJudge {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -586,6 +604,9 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	}
 	if j := s.currentReportJudge(); j != nil {
 		agent.executor.SetReportJudge(j)
+	}
+	if r := s.currentStepReader(); r != nil {
+		agent.executor.SetStepTechnologyReader(r)
 	}
 	if c := s.currentExpertConsultant(); c != nil {
 		agent.executor.SetExpertConsultant(c)

@@ -302,6 +302,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				"shard_agent", "shard_agent_domain", "technology_import_exact", "technology_import_prefix",
 				"shard_agent_recorded", "expert_task", "expert_task_target", "expert_task_extension",
 				"expert_task_speaker", "task_complexity",
+				// Jev's reading of a planned step (expert_step_declines) joins the
+				// task and its import candidates, homed here.
+				"expert_step_reading",
 				// The domains an agent's name states (shard_agent_domain,
 				// /agent_name) join the agent with the words of its name and
 				// the concept vocabulary, and a concept's verb joins

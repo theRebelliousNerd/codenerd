@@ -74,6 +74,14 @@ Decl expert_task_target(Task, Path) bound [/string, /string].
 # Producer: internal/experts.Select.
 Decl expert_task_extension(Task, File, Ext) bound [/string, /string, /string].
 
+# expert_step_reading(Task, Technology, Percent) - Jev's probability (0-100)
+# that carrying out the planned step the task runs requires writing or changing
+# code of Technology, one of the task's import candidates. Asked only for a
+# planned step, whose change text the plan states; absent when Jev is off or
+# the call failed. Producer: internal/experts.Select (a StepReader, the
+# session's Jev, internal/turnjudge/step_technology.go).
+Decl expert_step_reading(Task, Technology, Percent) bound [/string, /name, /number].
+
 # --- Derived (IDB, policy/shard_experts.mg) ----------------------------------
 
 # expert_task_file(Task, File) - a file the task is about: the target itself,
@@ -84,6 +92,15 @@ Decl expert_task_file(Task, File) bound [/string, /string].
 # Via: /language (the file's language) or /import (an import under a
 # technology_import_prefix).
 Decl task_technology(Task, File, Technology, Via) bound [/string, /string, /name, /name].
+
+# task_import_candidate(Task, File, Technology, Import) - a technology a task
+# file imports, through Import, before the step's reading decides whether the
+# task writes it.
+Decl task_import_candidate(Task, File, Technology, Import) bound [/string, /string, /name, /string].
+
+# expert_step_declines(Task, Technology) - Jev read that the planned step does
+# not write the technology's code (at or below jev_no_percent).
+Decl expert_step_declines(Task, Technology) bound [/string, /name].
 
 # reads_code_verb(Verb) - a conversational verb whose answer still reads the
 # target's code (explaining a policy file needs the engine's rules).

@@ -31,7 +31,7 @@ func TestPlannedStep_CarriesTheTurnsConsultation(t *testing.T) {
 	consultant := &stepCountingConsultant{}
 	e.SetExpertConsultant(consultant)
 	target := "cmd/nerd/chat/view.go"
-	sel := e.selectExperts("/fix", target)
+	sel := e.selectExperts(t.Context(), "/fix", target, "")
 	if len(sel.Agents()) == 0 {
 		t.Fatal("fixture: the roster selects no expert for the view")
 	}
@@ -44,7 +44,7 @@ func TestPlannedStep_CarriesTheTurnsConsultation(t *testing.T) {
 
 	stepCtx := prompt.NewCompilationContext()
 	stepCtx.IntentVerb, stepCtx.IntentTarget = "/fix", target
-	stepPrompt := e.stepSystemPrompt(t.Context(), turnPrompt, stepCtx, nil, "fix the resize", result)
+	stepPrompt := e.stepSystemPrompt(t.Context(), turnPrompt, stepCtx, nil, "fix the resize", "", result)
 	if !strings.Contains(stepPrompt, "step prompt") || !strings.Contains(stepPrompt, "STEP_ADVICE_MARKER") {
 		t.Fatalf("the step's prompt does not carry the turn's consultation:\n%s", stepPrompt)
 	}
@@ -55,7 +55,7 @@ func TestPlannedStep_CarriesTheTurnsConsultation(t *testing.T) {
 	// A step whose expert the turn never consulted consults it (on another
 	// request, independently of routing across execution results).
 	fresh := &ExecutionResult{}
-	stepPrompt = e.stepSystemPrompt(t.Context(), "turn prompt", stepCtx, nil, "fix the scroll", fresh)
+	stepPrompt = e.stepSystemPrompt(t.Context(), "turn prompt", stepCtx, nil, "fix the scroll", "", fresh)
 	if consultant.calls != asked+1 || !strings.Contains(stepPrompt, "STEP_ADVICE_MARKER") {
 		t.Fatalf("a step that newly needs an expert did not consult it (asked %d): %s", consultant.calls, stepPrompt)
 	}

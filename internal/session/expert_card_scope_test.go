@@ -54,7 +54,7 @@ func TestPlannedStep_AnAdviserSelectedForANewFileIsAskedAboutIt(t *testing.T) {
 	consultant := &scopeConsultant{}
 	e.SetExpertConsultant(consultant)
 
-	sel := e.selectExperts("/fix", "internal/ui/a.go")
+	sel := e.selectExperts(t.Context(), "/fix", "internal/ui/a.go", "")
 	if len(sel.Needs) != 1 || sel.Needs[0].Spawn != experts.SpawnAdvise {
 		t.Fatalf("fixture: want one adviser for a.go, got %+v", sel.Needs)
 	}
@@ -63,7 +63,7 @@ func TestPlannedStep_AnAdviserSelectedForANewFileIsAskedAboutIt(t *testing.T) {
 
 	stepCtx := prompt.NewCompilationContext()
 	stepCtx.IntentVerb, stepCtx.IntentTarget = "/fix", "internal/ui/b.go"
-	stepPrompt := e.stepSystemPrompt(t.Context(), "turn prompt", stepCtx, nil, "fix the ui", result)
+	stepPrompt := e.stepSystemPrompt(t.Context(), "turn prompt", stepCtx, nil, "fix the ui", "", result)
 
 	if len(consultant.tasks) != 2 || !strings.Contains(consultant.tasks[1], "Files in your domain: internal/ui/b.go") {
 		t.Fatalf("the adviser was not asked about b.go: %q", consultant.tasks)
@@ -80,7 +80,7 @@ func TestPlannedStep_AnAdviserSelectedForANewFileIsAskedAboutIt(t *testing.T) {
 
 	// A third step on a.go is dealt the first card and asks no one.
 	stepCtx.IntentTarget = "internal/ui/a.go"
-	again := e.stepSystemPrompt(t.Context(), "turn prompt", stepCtx, nil, "fix the ui", result)
+	again := e.stepSystemPrompt(t.Context(), "turn prompt", stepCtx, nil, "fix the ui", "", result)
 	if len(consultant.tasks) != 2 || !strings.Contains(again, "SCOPE_ADVICE_1") || strings.Contains(again, "SCOPE_ADVICE_2") {
 		t.Fatalf("the a.go step was not dealt its own card alone (%d asks):\n%s", len(consultant.tasks), again)
 	}

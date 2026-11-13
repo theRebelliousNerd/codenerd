@@ -68,6 +68,12 @@ type TypeSafeConfig struct {
 	// a blocker; the /finish round pushes unfinished work back to the model
 	// (session/finish_round.go). Off, the closure asks the main model.
 	FinalReports *bool `json:"final_reports,omitempty"`
+	// StepTechnologies: before a planned step's edit, Jev reads, per
+	// technology the step's file imports, whether the step's change writes
+	// that technology's code; the kernel keeps a declined technology's
+	// specialists out of the pre-edit consult (policy/shard_experts.mg
+	// expert_step_declines). Off, the file's imports decide.
+	StepTechnologies *bool `json:"step_technologies,omitempty"`
 	// AtomRelevance: Jev judges, per turn, whether each pooled flesh prompt
 	// atom applies to the request (internal/atomjudge, jit_compiler.mg).
 	AtomRelevance *bool `json:"atom_relevance,omitempty"`
@@ -111,6 +117,8 @@ type TypeSafeUses struct {
 	InstructionCoverage bool
 	// FinalReports is the final-report reading and the /finish round.
 	FinalReports bool
+	// StepTechnologies is the planned step's technology reading.
+	StepTechnologies bool
 	// TurnJudgmentTimeout bounds one turn's judgments (turn_judgment_timeout).
 	TurnJudgmentTimeout time.Duration
 	// RecentTurns bounds the prior turns a turn judgment sees.
@@ -144,6 +152,7 @@ func DefaultTypeSafeUses() TypeSafeUses {
 		AtomRelevance:       true,
 		InstructionCoverage: true,
 		FinalReports:        true,
+		StepTechnologies:    true,
 		TurnJudgmentTimeout: defaultTurnJudgmentTimeout,
 		RecentTurns:         12, BatchSize: 20, RelevancePoolFactor: 6, RelevanceHeadBytes: 3000, FindingContextLines: 12,
 		AtomRelevancePool: 40, AtomRelevanceTimeout: defaultAtomRelevanceTimeout,
@@ -178,6 +187,7 @@ func (c *TypeSafeConfig) Uses() TypeSafeUses {
 	u.AtomRelevance = on(c.AtomRelevance, u.AtomRelevance)
 	u.InstructionCoverage = on(c.InstructionCoverage, u.InstructionCoverage)
 	u.FinalReports = on(c.FinalReports, u.FinalReports)
+	u.StepTechnologies = on(c.StepTechnologies, u.StepTechnologies)
 	set := func(v int, dst *int) {
 		if v > 0 {
 			*dst = v

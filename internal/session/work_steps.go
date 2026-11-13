@@ -827,7 +827,7 @@ func (e *Executor) stepSystemPrompt(
 	turnPrompt string,
 	stepCtx *prompt.CompilationContext,
 	cfg *config.EffectiveAgentRuntimeConfig,
-	task string,
+	task, change string,
 	result *ExecutionResult,
 ) string {
 	if e.jitCompiler == nil || stepCtx == nil {
@@ -839,7 +839,7 @@ func (e *Executor) stepSystemPrompt(
 	stepCtx.DerivedNeeds = e.compileNeeds(stepCtx.Language, stepCtx.IntentVerb)
 	// The step's whole selection, not only its agent names: an expert this
 	// step's file newly needs owes its consultation and its critique too.
-	stepSel := e.selectExperts(stepCtx.IntentVerb, stepCtx.IntentTarget)
+	stepSel := e.selectExperts(ctx, stepCtx.IntentVerb, stepCtx.IntentTarget, change)
 	stepCtx.Experts = stepSel.Agents()
 	e.recordExpertCritics(result, stepSel)
 	if cfg != nil && len(cfg.AllowedTools) > 0 && len(stepCtx.AvailableTools) == 0 {
@@ -924,7 +924,7 @@ func (e *Executor) runPlannedSteps(
 		// turn's prompt was selected for the task as a whole and the project's
 		// language, so a step that edits a policy file ran on a Go prompt with
 		// none of the /mangle corpus in it. Both passes of the step share it.
-		stepPrompt := e.stepSystemPrompt(ctx, systemPrompt, &stepCtx, cfg, task, result)
+		stepPrompt := e.stepSystemPrompt(ctx, systemPrompt, &stepCtx, cfg, task, step.Change, result)
 
 		resp, errs, err := e.runToolLoopPass(ctx, stepPrompt, workStepAnchor(task, steps, beyond, i, false), cfg, &stepCtx, result, toolLoopPass{plannedStep: true})
 		toolErrs = append(toolErrs, errs...)

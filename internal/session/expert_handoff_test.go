@@ -75,7 +75,7 @@ func TestPlannedStep_IsDealtTheHandoffsItIsAnEndOf(t *testing.T) {
 	step := func(file string) string {
 		stepCtx := prompt.NewCompilationContext()
 		stepCtx.IntentVerb, stepCtx.IntentTarget = "/fix", file
-		return e.stepSystemPrompt(t.Context(), "turn prompt", stepCtx, nil, "fix it", result)
+		return e.stepSystemPrompt(t.Context(), "turn prompt", stepCtx, nil, "fix it", "", result)
 	}
 	const line = "internal/a/a.go -> internal/b/b.go (schemaexpert): b keeps reading the old column"
 	if got := step("internal/b/b.go"); !strings.Contains(got, line) {

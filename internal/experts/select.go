@@ -15,12 +15,14 @@
 package experts
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync/atomic"
 
+	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
 
@@ -37,6 +39,23 @@ type Task struct {
 	// key, "goexpert"): asserted as expert_task_speaker, so a consultation
 	// never spawns another (policy/shard_experts.mg expert_spawn).
 	Speaker string
+	// Change is a planned step's change text, the "<change>" of its
+	// "STEP <file> :: <change>" line; "" for a whole turn. With Reader set,
+	// each technology the target merely imports is read against it before
+	// the kernel decides (expert_step_reading).
+	Change string
+	// Reader reads a planned step for the technologies it will write; nil
+	// leaves the import rule alone.
+	Reader StepReader
+}
+
+// StepReader judges, per candidate technology (with the import paths the
+// file reaches it through), the probability (0-100) that carrying out a
+// planned step requires writing or changing that technology's code. A
+// technology it does not answer for has no reading. An error is no evidence:
+// the selection proceeds on the import rule.
+type StepReader interface {
+	ReadStep(ctx context.Context, file, change string, technologies map[string][]string) (map[string]int64, error)
 }
 
 // Spawn modes, the value set of expert_spawn/3's Mode.
@@ -100,6 +119,11 @@ var taskSeq atomic.Uint64
 // nothing. An error means the kernel could not be asked; the selection is
 // then empty, never guessed.
 func Select(kernel types.Kernel, task Task) (Selection, error) {
+	return SelectContext(context.Background(), kernel, task)
+}
+
+// SelectContext is Select under ctx, which bounds the step reading.
+func SelectContext(ctx context.Context, kernel types.Kernel, task Task) (Selection, error) {
 	verb := strings.TrimSpace(task.Verb)
 	if kernel == nil || !validName(verb) {
 		return Selection{}, nil
@@ -111,6 +135,13 @@ func Select(kernel types.Kernel, task Task) (Selection, error) {
 	}
 	if err := kernel.AssertBatch(facts); err != nil {
 		return Selection{Task: id}, fmt.Errorf("assert expert task: %w", err)
+	}
+	if readings := readStep(ctx, kernel, id, task); len(readings) > 0 {
+		if err := kernel.AssertBatch(readings); err != nil {
+			logging.Get(logging.CategorySession).Warn("expert selection: step readings for %s not asserted: %v", id, err)
+		} else {
+			facts = append(facts, readings...)
+		}
 	}
 	sel, readErr := read(kernel, id)
 	if err := kernel.RetractExactFactsBatch(facts); err != nil && readErr == nil {
@@ -144,6 +175,56 @@ func taskFacts(id, verb string, task Task) []types.Fact {
 		facts = append(facts, types.Fact{Predicate: "expert_task_speaker", Args: []any{id, AgentAtom(speaker)}})
 	}
 	return facts
+}
+
+// readStep asks the task's StepReader about each technology the task's files
+// import (task_import_candidate) and returns the readings as
+// expert_step_reading facts. Only a planned step, which states its change,
+// is read; a failed reading is logged and is no evidence.
+func readStep(ctx context.Context, kernel types.Kernel, id string, task Task) []types.Fact {
+	change := strings.TrimSpace(task.Change)
+	if task.Reader == nil || change == "" || len(task.Targets) == 0 {
+		return nil
+	}
+	rows, err := kernel.Query("task_import_candidate")
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("expert selection: task_import_candidate: %v", err)
+		return nil
+	}
+	imports := map[string][]string{}
+	for _, f := range rows {
+		if len(f.Args) < 4 || types.ExtractString(f.Args[0]) != id {
+			continue
+		}
+		tech := strings.TrimPrefix(types.ExtractString(f.Args[2]), "/")
+		if tech != "" {
+			imports[tech] = appendUnique(imports[tech], types.ExtractString(f.Args[3]))
+		}
+	}
+	if len(imports) == 0 {
+		return nil
+	}
+	techs := make([]string, 0, len(imports))
+	for tech := range imports {
+		sort.Strings(imports[tech])
+		techs = append(techs, tech)
+	}
+	sort.Strings(techs)
+	file := types.CanonicalPath(task.Workspace, strings.TrimSpace(task.Targets[0]))
+	readings, err := task.Reader.ReadStep(ctx, file, change, imports)
+	if err != nil {
+		logging.Get(logging.CategorySession).Warn("expert selection: step reading for %s failed, the import rule stands: %v", file, err)
+		return nil
+	}
+	var out []types.Fact
+	for _, tech := range techs {
+		p, ok := readings[tech]
+		if !ok {
+			continue
+		}
+		out = append(out, types.Fact{Predicate: "expert_step_reading", Args: []any{id, types.MangleAtom("/" + tech), p}})
+	}
+	return out
 }
 
 // read collects every judgment the kernel derived for task id.

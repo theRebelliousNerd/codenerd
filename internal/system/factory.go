@@ -2730,6 +2730,12 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.sessionExecutor.SetReportJudge(judge)
 		bctx.sessionSpawner.SetReportJudge(judge)
 	}
+	// A planned step's experts are dealt by what the step says it will
+	// change, read by Jev (policy/shard_experts.mg expert_step_declines).
+	if reader := stepTechnologyReaderFor(bctx.appCfg); reader != nil {
+		bctx.sessionExecutor.SetStepTechnologyReader(reader)
+		bctx.sessionSpawner.SetStepTechnologyReader(reader)
+	}
 	bctx.sessionSpawner.SetExecutorConfig(&execCfg)
 	bctx.sessionSpawner.SetSessionID(bctx.sessionID)
 	bctx.sessionSpawner.SetApprovalBroker(bctx.approvals)

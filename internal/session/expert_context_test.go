@@ -67,8 +67,63 @@ func TestStepCompileDerivesTheStepFilesExperts(t *testing.T) {
 	}
 	step := turn.Clone()
 	step.IntentTarget = "internal/context/working_set.mg"
-	e.stepSystemPrompt(t.Context(), "turn prompt", step, nil, "", nil)
+	e.stepSystemPrompt(t.Context(), "turn prompt", step, nil, "", "", nil)
 	if !slices.Equal(compiled, []string{"mangleexpert"}) {
 		t.Errorf("the policy step compiled with experts %v, want [mangleexpert]", compiled)
+	}
+}
+
+type stepReaderFunc func(ctx context.Context, file, change string, techs map[string][]string) (map[string]int64, error)
+
+func (f stepReaderFunc) ReadStep(ctx context.Context, file, change string, techs map[string][]string) (map[string]int64, error) {
+	return f(ctx, file, change, techs)
+}
+
+// A planned step on a Go file that imports a Mangle library is read for what
+// the step says it will change: read as Go-only, the step compiles without the
+// Mangle expert; read as writing Mangle code, with it. The reader receives the
+// step's own change text.
+func TestStepCompileDealsImportedExpertsByTheStepsChange(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		percent int64
+		want    []string
+	}{
+		{"go only", 6, nil},
+		{"writes mangle", 97, []string{"mangleexpert"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			k := expertRosterKernel(t)
+			if err := k.AssertBatch([]types.Fact{
+				{Predicate: "technology_import_prefix", Args: []any{"codeberg.org/TauCeti/mangle-go", types.MangleAtom("/mangle")}},
+				{Predicate: "dependency_link", Args: []any{"internal/core/kernel_query.go", "pkg:codeberg.org/TauCeti/mangle-go/ast", "codeberg.org/TauCeti/mangle-go/ast"}},
+				{Predicate: "config_param", Args: []any{types.MangleAtom("/jev_yes_percent"), int64(70)}},
+				{Predicate: "config_param", Args: []any{types.MangleAtom("/jev_no_percent"), int64(30)}},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			var compiled []string
+			jit := &MockJITCompiler{CompileFunc: func(_ context.Context, cc *prompt.CompilationContext) (*prompt.CompilationResult, error) {
+				compiled = slices.Clone(cc.Experts)
+				return &prompt.CompilationResult{Prompt: "step prompt"}, nil
+			}}
+			e := NewExecutor(k, nil, nil, jit, nil, nil)
+			var gotChange string
+			e.SetStepTechnologyReader(stepReaderFunc(func(_ context.Context, _, change string, techs map[string][]string) (map[string]int64, error) {
+				gotChange = change
+				return map[string]int64{"mangle": tc.percent}, nil
+			}))
+			step := turnCC(e, t.Context(), perception.Intent{Verb: "/fix", Target: "internal/core/kernel_query.go"}).Clone()
+			step.IntentTarget = "internal/core/kernel_query.go"
+			const change = "return early from Query when the predicate name is empty"
+			e.stepSystemPrompt(t.Context(), "turn prompt", step, nil, "", change, nil)
+			if gotChange != change {
+				t.Fatalf("reader got change %q, want the step's change", gotChange)
+			}
+			if !slices.Equal(compiled, tc.want) {
+				t.Fatalf("step compiled with experts %v, want %v", compiled, tc.want)
+			}
+		})
 	}
 }

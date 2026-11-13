@@ -42,7 +42,7 @@ func TestPlannedStep_IsDealtTheCardsForItsFile(t *testing.T) {
 	step := func(file string) string {
 		stepCtx := prompt.NewCompilationContext()
 		stepCtx.IntentVerb, stepCtx.IntentTarget = "/fix", file
-		return e.stepSystemPrompt(t.Context(), turnPrompt, stepCtx, nil, "fix it", result)
+		return e.stepSystemPrompt(t.Context(), turnPrompt, stepCtx, nil, "fix it", "", result)
 	}
 
 	other := step("internal/a/a.go")

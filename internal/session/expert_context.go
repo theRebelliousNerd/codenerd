@@ -18,16 +18,25 @@ import (
 // files call for, by the same derivation. The executor does not choose an
 // expert; a kernel that cannot answer leaves the turn without one and says so
 // in the log.
-func (e *Executor) selectExperts(verb, target string) experts.Selection {
+//
+// change is a planned step's change text ("" for a whole turn). With it, and
+// the step reader set, the technologies the target only imports are read
+// against what the step says it will change before the kernel decides.
+func (e *Executor) selectExperts(ctx context.Context, verb, target, change string) experts.Selection {
 	if e.kernel == nil || strings.TrimSpace(target) == "" {
 		return experts.Selection{}
 	}
-	sel, err := experts.Select(e.kernel, experts.Task{
+	task := experts.Task{
 		Verb:      verb,
 		Targets:   []string{target},
 		Workspace: e.workspaceForVerification(),
 		Speaker:   turnUserAgent(verb),
-	})
+	}
+	if strings.TrimSpace(change) != "" {
+		task.Change = change
+		task.Reader = e.currentStepReader()
+	}
+	sel, err := experts.SelectContext(ctx, e.kernel, task)
 	if err != nil {
 		logging.Get(logging.CategorySession).Warn("expert selection for %s %s failed: %v", verb, target, err)
 		return experts.Selection{}
@@ -43,7 +52,7 @@ func (e *Executor) selectExperts(verb, target string) experts.Selection {
 // knowledge, and the consultations the kernel derives run from the same
 // selection.
 func (e *Executor) turnCompilationContext(ctx context.Context, intent perception.Intent) (*prompt.CompilationContext, experts.Selection) {
-	sel := e.selectExperts(intent.Verb, intent.Target)
+	sel := e.selectExperts(ctx, intent.Verb, intent.Target, "")
 	return e.buildCompilationContextWith(ctx, intent, sel.Agents()), sel
 }
 
@@ -59,4 +68,19 @@ func turnUserAgent(verb string) string {
 		return ""
 	}
 	return UserAgentFromIntentVerb(verb)
+}
+
+// SetStepTechnologyReader installs the planned-step technology reading
+// (typesafe.step_technologies). Nil leaves step selection on the file's
+// imports.
+func (e *Executor) SetStepTechnologyReader(r experts.StepReader) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.stepReader = r
+}
+
+func (e *Executor) currentStepReader() experts.StepReader {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.stepReader
 }

@@ -14,6 +14,7 @@ package session
 
 import (
 	"codenerd/internal/approval"
+	"codenerd/internal/experts"
 	"context"
 	"encoding/json"
 	"errors"
@@ -282,6 +283,10 @@ type Executor struct {
 	// and the closure audit (finish_round.go). Nil: no /finish push-back, and
 	// the closure audit asks the main model.
 	reportJudge *ReportJudge
+	// stepReader reads a planned step's change for the technologies it will
+	// write (Jev, typesafe.step_technologies) before the step's experts are
+	// selected (expert_step_reading). Nil: the file's imports decide.
+	stepReader experts.StepReader
 	// expertConsultant runs the shard-agent consultations the kernel derives
 	// for a turn (expert_spawn, policy/shard_experts.mg): the JITExecutor's
 	// SpawnConsultation, the machinery chat consultations use. Nil: the turn
@@ -744,6 +749,7 @@ func (e *Executor) CloneForTask() *Executor {
 	// A delegated task's report is read the same way, so its unfinished
 	// work is pushed back too (finish_round.go).
 	clone.reportJudge = e.reportJudge
+	clone.stepReader = e.stepReader
 	// A delegated task is where a fix runs: the shard agents the kernel
 	// routes to it are consulted from the clone.
 	clone.expertConsultant = e.expertConsultant

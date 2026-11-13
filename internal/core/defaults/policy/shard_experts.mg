@@ -43,16 +43,35 @@ task_technology(Task, File, Lang, /language) :-
 # records every import a Go, Python, JavaScript, TypeScript or Rust file makes
 # as dependency_link(File, _, Import). expert_task_file binds File first, so
 # the scan is the task's own imports, not the workspace's dependency_link.
-task_technology(Task, File, Tech, /import) :-
+task_import_candidate(Task, File, Tech, Import) :-
     expert_task_file(Task, File),
     dependency_link(File, _, Import),
     technology_import_exact(Import, Tech).
 
-task_technology(Task, File, Tech, /import) :-
+task_import_candidate(Task, File, Tech, Import) :-
     expert_task_file(Task, File),
     dependency_link(File, _, Import),
     technology_import_prefix(Prefix, Tech),
     :string:starts_with(Import, Prefix).
+
+# An import says the file uses a technology; it does not say the task will
+# write any of it. A planned step says what it will change (STEP <file> ::
+# <change>, internal/session/work_steps.go), and before the edit that is the
+# only evidence of what the change touches: Jev reads, per candidate
+# technology, whether carrying out the step requires writing or changing that
+# technology's code (expert_step_reading), and a reading at or below the no
+# threshold declines it -- a Go-only step on a file that imports a Mangle
+# library consults no Mangle specialist. With Jev off, unsettled or failed,
+# there is no reading and the import stands, as it did before. The post-edit
+# review is dealt by the change itself (turn_expert_critic_due below).
+expert_step_declines(Task, Tech) :-
+    expert_step_reading(Task, Tech, Percent),
+    config_param(/jev_no_percent, No),
+    Percent <= No.
+
+task_technology(Task, File, Tech, /import) :-
+    task_import_candidate(Task, File, Tech, _),
+    !expert_step_declines(Task, Tech).
 
 # --- The verb ----------------------------------------------------------------
 
