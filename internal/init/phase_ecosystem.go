@@ -209,6 +209,11 @@ func (i *Initializer) integrateEcosystem(ctx context.Context, result *InitResult
 		result.Warnings = append(result.Warnings, fmt.Sprintf("agent ecosystem results were not read: %v", err))
 		return recommended
 	}
+	promptCopies, err := eng.Query("agent_prompt_copy")
+	if err != nil {
+		result.Warnings = append(result.Warnings, fmt.Sprintf("agent ecosystem results were not read: %v", err))
+		return recommended
+	}
 
 	agentRows, err := eng.Query("orient_agent")
 	if err != nil {
@@ -241,19 +246,7 @@ func (i *Initializer) integrateEcosystem(ctx context.Context, result *InitResult
 	for _, src := range sources {
 		byID[src.ID] = src
 	}
-	knowledgeByAgent := map[string][]ecosystemAtom{}
-	for _, fact := range knowledge {
-		if len(fact.Args) < 2 {
-			continue
-		}
-		name := canonical(types.ExtractString(fact.Args[0]))
-		id := types.ExtractString(fact.Args[1])
-		src, ok := byID[id]
-		if !ok {
-			continue
-		}
-		knowledgeByAgent[name] = append(knowledgeByAgent[name], ecosystemKnowledgeAtoms(src, limit)...)
-	}
+	knowledgeByAgent := ecosystemKnowledgeByAgent(knowledge, byID, canonical, limit)
 	promptRows, err := eng.Query("orient_agent_prompt")
 	if err != nil {
 		result.Failures = append(result.Failures, "orientation prompt selection: "+err.Error())
@@ -267,7 +260,7 @@ func (i *Initializer) integrateEcosystem(ctx context.Context, result *InitResult
 	}
 
 	merged := mergeDerivedAgents(recommended, derived, profile.Language)
-	atoms := ecosystemPromptAtoms(sources, winners)
+	atoms := ecosystemPromptAtoms(sources, promptWinners(winners, promptCopies))
 	reportPath := filepath.Join(ws, ".nerd", "orientation", "agents.md")
 	if err := writeOrientationAgents(reportPath, merged, research, sources, winners, knowledge, losers, atoms); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("orientation agent report was not written: %v", err))
@@ -600,6 +593,65 @@ func importedPrompts(sources []orient.Source, rows []types.Fact) map[string]stri
 	return out
 }
 
+// ecosystemKnowledgeByAgent turns the policy's knowledge sources into each
+// agent's rows. The policy has already folded sources that are one text
+// (orient_agent_knowledge over agent_source_copy_beats); a paragraph that two
+// different files share verbatim is still one row: the first copy is kept,
+// sources taken tracked first and then in stable ID order, the order the
+// policy's copy rule uses. Nothing is shortened.
+func ecosystemKnowledgeByAgent(knowledge []types.Fact, byID map[string]orient.Source, canonical func(string) string, limit int) map[string][]ecosystemAtom {
+	sourcesOf := map[string][]orient.Source{}
+	for _, fact := range knowledge {
+		if len(fact.Args) < 2 {
+			continue
+		}
+		name := canonical(types.ExtractString(fact.Args[0]))
+		src, ok := byID[types.ExtractString(fact.Args[1])]
+		if !ok {
+			continue
+		}
+		sourcesOf[name] = append(sourcesOf[name], src)
+	}
+	out := make(map[string][]ecosystemAtom, len(sourcesOf))
+	for name, srcs := range sourcesOf {
+		sort.SliceStable(srcs, func(i, j int) bool {
+			if srcs[i].Tracked != srcs[j].Tracked {
+				return srcs[i].Tracked
+			}
+			return srcs[i].ID < srcs[j].ID
+		})
+		held := map[string]bool{}
+		for _, src := range srcs {
+			for _, atom := range ecosystemKnowledgeAtoms(src, limit) {
+				if held[atom.Content] {
+					continue
+				}
+				held[atom.Content] = true
+				out[name] = append(out[name], atom)
+			}
+		}
+	}
+	return out
+}
+
+// promptWinners is the winner set without the sources whose text a canonical
+// winning copy carries (agent_prompt_copy): one text makes one prompt atom.
+func promptWinners(winners map[string]string, copies []types.Fact) map[string]string {
+	if len(copies) == 0 {
+		return winners
+	}
+	out := make(map[string]string, len(winners))
+	for id, why := range winners {
+		out[id] = why
+	}
+	for _, fact := range copies {
+		if len(fact.Args) > 0 {
+			delete(out, types.ExtractString(fact.Args[0]))
+		}
+	}
+	return out
+}
+
 func ecosystemKnowledgeAtoms(src orient.Source, runeLimit int) []ecosystemAtom {
 	var out []ecosystemAtom
 	if y := frontmatterYAML(src.Frontmatter); y != "" {
@@ -628,6 +680,23 @@ func ecosystemKnowledgeAtoms(src orient.Source, runeLimit int) []ecosystemAtom {
 		})
 	}
 	return out
+}
+
+// EcosystemConceptPath is the workspace path an ecosystem paragraph or page
+// row was imported from, as ecosystemKnowledgeAtoms writes it into the
+// concept ("... path=<path> bytes=<n>"). ok is false for any other concept.
+// The knowledge refresh reads it to retire rows whose source is gone.
+func EcosystemConceptPath(concept string) (path string, ok bool) {
+	if !strings.HasPrefix(concept, "ecosystem paragraph ") && !strings.HasPrefix(concept, "ecosystem page ") {
+		return "", false
+	}
+	start := strings.Index(concept, " path=")
+	end := strings.LastIndex(concept, " bytes=")
+	if start < 0 || end <= start {
+		return "", false
+	}
+	path = concept[start+len(" path=") : end]
+	return path, path != ""
 }
 
 // ecosystemBodyParts splits a body for storage. A non-positive limit keeps

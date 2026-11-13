@@ -148,6 +148,31 @@ func collect(root string) ([]string, error) {
 	return rels, errors.Join(errs...)
 }
 
+// IsAgentSourcePath reports whether the workspace file at rel (slash form,
+// relative to root) can be an agent-corpus source: it exists, it is not under
+// a nested .nerd, and no directory between root and the file is another
+// checkout (its own .git: a git worktree, a submodule, a nested repository),
+// the rule collect walks by.
+func IsAgentSourcePath(root, rel string) bool {
+	rel = path.Clean(strings.ReplaceAll(rel, "\\", "/"))
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") || path.IsAbs(rel) {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil || info.IsDir() {
+		return false
+	}
+	for dir := path.Dir(rel); dir != "." && dir != "/"; dir = path.Dir(dir) {
+		if path.Base(dir) == ".nerd" {
+			return false
+		}
+		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(dir), ".git")); err == nil {
+			return false
+		}
+	}
+	return true
+}
+
 func keepCandidate(rel string) bool {
 	base := path.Base(rel)
 	if base == ".roomodes" {

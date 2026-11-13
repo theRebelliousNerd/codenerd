@@ -44,6 +44,17 @@ Decl knowledge_source_available(Source) bound [/string].
 # age.
 Decl knowledge_atom_held(Agent, Concept, Kind, AgeDays) bound [/name, /string, /string, /number].
 
+# knowledge_atom_row(Agent, Concept, Digest, RowID) - one held row: the
+# sha256 of its content and its row id (insertion order). Producer:
+# internal/knowledge (Measure); placeholders excluded.
+Decl knowledge_atom_row(Agent, Concept, Digest, RowID) bound [/name, /string, /string, /number].
+
+# knowledge_atom_origin_gone(Agent, Concept) - the row was imported from a
+# workspace file (an ecosystem paragraph names its path) that is no longer a
+# source: the file is gone, or it lies in a nested checkout such as a git
+# worktree under .claude/worktrees/. Producer: internal/system/knowledge_refresh.go.
+Decl knowledge_atom_origin_gone(Agent, Concept) bound [/name, /string].
+
 # knowledge_atom_retrieved(Agent, Concept, Count) - how many consultations
 # retrieved the row (a compile pushing the agent's knowledge).
 Decl knowledge_atom_retrieved(Agent, Concept, Count) bound [/name, /string, /number].
@@ -127,7 +138,20 @@ Decl knowledge_refresh(Agent, Subject, Reason) bound [/name, /string, /name].
 # Consumer: internal/system/knowledge_refresh.go.
 Decl knowledge_refresh_priority(Agent, Subject, Weight, Uses) bound [/name, /string, /number, /number].
 
+# knowledge_concept_ord(Agent, Concept, Ord) - the concept's earliest row id.
+Decl knowledge_concept_ord(Agent, Concept, Ord) bound [/name, /string, /number].
+
+# knowledge_content_held_earlier(Agent, Concept, Digest) - a concept stored
+# earlier, whose source still stands, holds the same content.
+Decl knowledge_content_held_earlier(Agent, Concept, Digest) bound [/name, /string, /string].
+
+# knowledge_concept_has_own_content(Agent, Concept) - some row of the concept
+# holds content no earlier standing concept holds.
+Decl knowledge_concept_has_own_content(Agent, Concept) bound [/name, /string].
+
 # knowledge_prune(Agent, Concept, Reason) - delete the row. Reason
-# /never_retrieved: acquired, old, and unused by a consulted agent.
+# /never_retrieved: acquired, old, and unused by a consulted agent;
+# /duplicate: every row of the concept repeats content an earlier concept
+# holds; /source_gone: imported from a file that is no longer a source.
 # Consumer: internal/system/knowledge_refresh.go.
 Decl knowledge_prune(Agent, Concept, Reason) bound [/name, /string, /name].

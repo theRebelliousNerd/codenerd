@@ -14,6 +14,7 @@ import (
 	nerdinit "codenerd/internal/init"
 	"codenerd/internal/knowledge"
 	"codenerd/internal/logging"
+	"codenerd/internal/orient"
 	"codenerd/internal/store"
 	"codenerd/internal/types"
 )
@@ -34,7 +35,8 @@ import (
 // replaces the last run's.
 var knowledgeRefreshPredicates = []string{
 	"knowledge_wanted", "knowledge_outcome", "knowledge_source_available",
-	"knowledge_atom_held", "knowledge_atom_retrieved", "knowledge_miss", "knowledge_miss_recovered",
+	"knowledge_atom_held", "knowledge_atom_row", "knowledge_atom_origin_gone",
+	"knowledge_atom_retrieved", "knowledge_miss", "knowledge_miss_recovered",
 	"knowledge_acquired_version", "dependency_pin",
 }
 
@@ -124,7 +126,7 @@ func (r *knowledgeRefresher) run(ctx context.Context) (KnowledgeRefreshReport, e
 			subjects[agent.key][s.Key()] = s
 			facts = append(facts, types.Fact{Predicate: "knowledge_wanted", Args: []any{agent.atom, s.Key()}})
 		}
-		measured, gen, err := measureAgentKB(ctx, agent, now())
+		measured, gen, err := measureAgentKB(ctx, agent, r.workspace, now())
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return report, ctxErr
@@ -267,7 +269,7 @@ func (r *knowledgeRefresher) domains() (map[string][]string, error) {
 	return out, nil
 }
 
-func measureAgentKB(ctx context.Context, agent rosterKB, now time.Time) ([]types.Fact, store.KnowledgeGeneration, error) {
+func measureAgentKB(ctx context.Context, agent rosterKB, workspace string, now time.Time) ([]types.Fact, store.KnowledgeGeneration, error) {
 	db, err := store.NewLocalStore(agent.path)
 	if err != nil {
 		return nil, store.KnowledgeGeneration{}, fmt.Errorf("open KB: %w", err)
@@ -288,7 +290,38 @@ func measureAgentKB(ctx context.Context, agent rosterKB, now time.Time) ([]types
 		return nil, gen, err
 	}
 	facts, err := knowledge.Measure(ctx, db.GetDB(), agent.atom, now)
-	return facts, gen, err
+	if err != nil {
+		return facts, gen, err
+	}
+	return append(facts, originGoneFacts(workspace, agent.atom, facts)...), gen, nil
+}
+
+// originGoneFacts measures, for each held row imported from a workspace file
+// (an ecosystem paragraph names its path), whether that file is still a
+// source: present, and outside any nested checkout. A row from a file that is
+// not becomes knowledge_atom_origin_gone; the policy prunes it.
+func originGoneFacts(workspace string, agent types.MangleAtom, measured []types.Fact) []types.Fact {
+	if strings.TrimSpace(workspace) == "" {
+		return nil
+	}
+	var out []types.Fact
+	seen := map[string]bool{}
+	for _, fact := range measured {
+		if fact.Predicate != "knowledge_atom_held" || len(fact.Args) < 2 {
+			continue
+		}
+		concept := types.ExtractString(fact.Args[1])
+		if seen[concept] {
+			continue
+		}
+		seen[concept] = true
+		rel, ok := nerdinit.EcosystemConceptPath(concept)
+		if !ok || orient.IsAgentSourcePath(workspace, rel) {
+			continue
+		}
+		out = append(out, types.Fact{Predicate: "knowledge_atom_origin_gone", Args: []any{agent, concept}})
+	}
+	return out
 }
 
 // knowledgePlan is what the policy derived for one run.

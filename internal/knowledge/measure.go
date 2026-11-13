@@ -2,7 +2,9 @@ package knowledge
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -65,20 +67,24 @@ func Measure(ctx context.Context, db *sql.DB, agent any, now time.Time) ([]types
 	}
 
 	if tables["knowledge_atoms"] {
-		rows, err := db.QueryContext(ctx, `SELECT concept, content, COALESCE(source, ''), CAST(strftime('%s', created_at) AS INTEGER) FROM knowledge_atoms ORDER BY concept, content, COALESCE(source, '')`)
+		rows, err := db.QueryContext(ctx, `SELECT id, concept, content, COALESCE(source, ''), CAST(strftime('%s', created_at) AS INTEGER) FROM knowledge_atoms ORDER BY concept, content, COALESCE(source, '')`)
 		if err != nil {
 			return nil, fmt.Errorf("read knowledge: %w", err)
 		}
 		err = scanRows(rows, func(r *sql.Rows) error {
+			var id int64
 			var concept, content, source string
 			var at sql.NullInt64
-			if err := r.Scan(&concept, &content, &source, &at); err != nil {
+			if err := r.Scan(&id, &concept, &content, &source, &at); err != nil {
 				return err
 			}
 			if IsLegacyPlaceholder(concept, content) {
 				return nil
 			}
-			facts = append(facts, types.Fact{Predicate: "knowledge_atom_held", Args: []any{agent, concept, SourceKind(source), days(at)}})
+			facts = append(facts,
+				types.Fact{Predicate: "knowledge_atom_held", Args: []any{agent, concept, SourceKind(source), days(at)}},
+				types.Fact{Predicate: "knowledge_atom_row", Args: []any{agent, concept, contentDigest(content), id}},
+			)
 			return nil
 		})
 		if err != nil {
@@ -214,4 +220,11 @@ func scanRows(rows *sql.Rows, each func(*sql.Rows) error) error {
 		}
 	}
 	return rows.Err()
+}
+
+// contentDigest identifies a row's content: two rows with one digest hold
+// the same text (policy/knowledge_refresh.mg folds them).
+func contentDigest(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
 }

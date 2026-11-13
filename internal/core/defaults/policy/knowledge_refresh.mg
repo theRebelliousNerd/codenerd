@@ -121,3 +121,39 @@ knowledge_prune(Agent, Concept, /never_retrieved) :-
     knowledge_agent_use(Agent, Uses),
     knowledge_prune_min_consultations(Min),
     Uses >= Min.
+
+# --- Copies and orphans ------------------------------------------------------
+#
+# A KB held one paragraph once per path it was imported from (an agent file
+# mirrored into .claude, .codex, .grok and .agents, a worktree checkout of the
+# whole tree), and the rows predate the import's own retirement: live
+# 2026-11-13, 1662 of 4259 rows across this repository's KBs repeated content
+# another row of the same KB holds. The earliest stored concept whose source
+# still stands keeps the content; a concept every row of which is held earlier
+# is pruned, and a row whose source file is gone or inside a nested checkout is
+# pruned whatever it holds. The import does not write them again
+# (orient_agent_knowledge folds copies; init keeps one row per paragraph).
+
+knowledge_concept_ord(Agent, Concept, Ord) :-
+    knowledge_atom_row(Agent, Concept, _, RowID)
+    |> do fn:group_by(Agent, Concept), let Ord = fn:min(RowID).
+
+knowledge_content_held_earlier(Agent, Concept, Digest) :-
+    knowledge_atom_row(Agent, Concept, Digest, _),
+    knowledge_atom_row(Agent, Other, Digest, _),
+    Concept != Other,
+    !knowledge_atom_origin_gone(Agent, Other),
+    knowledge_concept_ord(Agent, Other, OtherOrd),
+    knowledge_concept_ord(Agent, Concept, Ord),
+    OtherOrd < Ord.
+
+knowledge_concept_has_own_content(Agent, Concept) :-
+    knowledge_atom_row(Agent, Concept, Digest, _),
+    !knowledge_content_held_earlier(Agent, Concept, Digest).
+
+knowledge_prune(Agent, Concept, /duplicate) :-
+    knowledge_concept_ord(Agent, Concept, _),
+    !knowledge_concept_has_own_content(Agent, Concept).
+
+knowledge_prune(Agent, Concept, /source_gone) :-
+    knowledge_atom_origin_gone(Agent, Concept).

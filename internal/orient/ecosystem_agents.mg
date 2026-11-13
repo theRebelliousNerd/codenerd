@@ -120,6 +120,19 @@ Decl orient_agent_priority(Name, Priority) bound [/string, /number].
 # technologies of a task's files.
 Decl orient_agent_domain(Name, Key) bound [/string, /string].
 Decl orient_agent_knowledge(Name, SourceID) bound [/string, /string].
+# orient_agent_knowledge_candidate(Name, SourceID) - a source whose text the
+# agent's knowledge should hold, before copies of one text are folded.
+Decl orient_agent_knowledge_candidate(Name, SourceID) bound [/string, /string].
+# agent_source_copy_beats(A, B) - A and B are one text (same digest, non-empty
+# body) and A is the canonical copy: tracked before untracked, then the
+# earlier stable order.
+Decl agent_source_copy_beats(A, B) bound [/string, /string].
+# knowledge_copy_beaten(Name, SourceID) - another candidate of the agent holds
+# the same text as its canonical copy.
+Decl knowledge_copy_beaten(Name, SourceID) bound [/string, /string].
+# agent_prompt_copy(SourceID) - a winning source whose text a canonical
+# winning copy already carries; init makes no prompt atom of it.
+Decl agent_prompt_copy(SourceID) bound [/string].
 Decl orient_research_topic(Name, Topic) bound [/string, /string].
 Decl orient_agent_prompt_candidate(Name, ID) bound [/string, /string].
 Decl orient_agent_prompt_better(Name, ID) bound [/string, /string].
@@ -878,16 +891,53 @@ orient_agent_priority(Name, Priority) :-
 # The defining subagent or mode, plus winning skills, memories and rules that
 # share a topic with the agent. Instructions and commands are prompt atoms,
 # not knowledge rows.
-orient_agent_knowledge(Name, ID) :-
+orient_agent_knowledge_candidate(Name, ID) :-
     imported_kept(Name),
     imported_candidate(Name, ID).
 
-orient_agent_knowledge(Name, ID) :-
+orient_agent_knowledge_candidate(Name, ID) :-
     orient_agent_topic(Name, Topic),
     agent_source_winner_any(ID),
     agent_source(ID, _, Kind, _, _, _),
     knowledge_kind(Kind),
     agent_source_topic(ID, Topic).
+
+# One text is one knowledge source. A harness mirror (.claude, .codex, .agents,
+# .grok) or a generated twin holds the same bytes under another path, and the
+# duplicate rules above do not pair same-digest sources, so every copy was a
+# /unique winner and the agent's KB held each paragraph once per copy (live
+# 2026-11-12: an 851-char paragraph three times in one step prompt). The
+# canonical copy is the tracked one, then the earlier stable order.
+agent_source_copy_beats(A, B) :-
+    agent_source_digest(A, Digest), agent_source_digest(B, Digest), A != B,
+    agent_source_bytes(A, Size), Size > 0,
+    tracked_yes(A), !tracked_yes(B).
+
+agent_source_copy_beats(A, B) :-
+    agent_source_digest(A, Digest), agent_source_digest(B, Digest), A != B,
+    agent_source_bytes(A, Size), Size > 0,
+    tracked_yes(A), tracked_yes(B),
+    agent_source_ord(A, OrdA), agent_source_ord(B, OrdB), OrdA < OrdB.
+
+agent_source_copy_beats(A, B) :-
+    agent_source_digest(A, Digest), agent_source_digest(B, Digest), A != B,
+    agent_source_bytes(A, Size), Size > 0,
+    !tracked_yes(A), !tracked_yes(B),
+    agent_source_ord(A, OrdA), agent_source_ord(B, OrdB), OrdA < OrdB.
+
+knowledge_copy_beaten(Name, ID) :-
+    orient_agent_knowledge_candidate(Name, ID),
+    orient_agent_knowledge_candidate(Name, Other),
+    agent_source_copy_beats(Other, ID).
+
+orient_agent_knowledge(Name, ID) :-
+    orient_agent_knowledge_candidate(Name, ID),
+    !knowledge_copy_beaten(Name, ID).
+
+agent_prompt_copy(ID) :-
+    agent_source_winner_any(ID),
+    agent_source_copy_beats(Other, ID),
+    agent_source_winner_any(Other).
 
 topic_covered(Name, Topic) :-
     orient_agent_knowledge(Name, ID),
