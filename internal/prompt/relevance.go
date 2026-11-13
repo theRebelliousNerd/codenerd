@@ -595,3 +595,31 @@ func (s *AtomSelector) publishCarry(cc *CompilationContext, fitted []*OrderedAto
 	s.carry.publish(cc.stagedCarry, included)
 	cc.stagedCarry = nil
 }
+
+// retrievedJudgmentSet is the retrieved knowledge and learning rows of this
+// compile that its context admits, as the id set judgeRelevance asks about.
+// They are not vector hits: the set never widens vector_hit.
+func retrievedJudgmentSet(fleshAtoms []*PromptAtom, cc *CompilationContext) map[string]float64 {
+	out := map[string]float64{}
+	for _, a := range fleshAtoms {
+		if a != nil && a.RetrievedContext && a.MatchesContext(cc) {
+			out[a.ID] = 0
+		}
+	}
+	return out
+}
+
+func logRetrievedRelevance(cc *CompilationContext, out relevanceOutcome, n int) {
+	log := logging.Get(logging.CategoryJIT)
+	shard := ""
+	if cc != nil {
+		shard = cc.ShardID
+	}
+	if out.Err != nil {
+		log.Warn("JIT[%s] retrieved-row relevance: Jev gave no judgment (%v) after %s; all %d retrieved row(s) stay admitted",
+			shard, out.Err, out.Elapsed.Round(time.Millisecond), n)
+		return
+	}
+	log.Info("JIT[%s] retrieved-row relevance: %d row(s), %d asked + %d cached in %s",
+		shard, n, out.Judged, out.CacheHits, out.Elapsed.Round(time.Millisecond))
+}

@@ -360,3 +360,43 @@ func TestAssembler_CarriedFleshPrecedesNewFlesh(t *testing.T) {
 		t.Fatalf("carried flesh must precede new flesh whatever its category:\n%s", out)
 	}
 }
+
+// Retrieved knowledge rows are put to Jev apart from the recall pool: their
+// readings are asserted as atom_relevance (the kernel refuses a row read as
+// not applying, jit_compiler.mg), and they never become vector hits. A
+// failed judgment of the rows asserts nothing about them.
+func TestAtomRelevance_RetrievedRowsAreJudgedApartFromThePool(t *testing.T) {
+	atoms, _ := relevanceCorpus()
+	for _, id := range []string{"knowledge/aaaa0001", "knowledge/aaaa0002"} {
+		atoms = append(atoms, &PromptAtom{ID: id, Category: CategoryKnowledge, Content: "row " + id, ContentHash: HashContent("row " + id), RetrievedContext: true})
+	}
+	judge := &countingJudge{answers: map[string]float64{"knowledge/aaaa0001": 0.95, "knowledge/aaaa0002": 0.02}}
+	for i := range 12 {
+		judge.answers[fmt.Sprintf("flesh/%02d", i)] = 0.8
+	}
+	k := &recordingKernel{}
+	if _, err := relevanceSelector(judge, 6, time.Second).runSelectionFor(context.Background(), atoms, relevanceContext(), k); err != nil {
+		t.Fatal(err)
+	}
+	rel := strings.Join(k.with("atom_relevance("), " ")
+	for _, want := range []string{`atom_relevance("knowledge/aaaa0001", 95)`, `atom_relevance("knowledge/aaaa0002", 2)`} {
+		if !strings.Contains(rel, want) {
+			t.Fatalf("retrieved row reading missing %s:\n%s", want, rel)
+		}
+	}
+	if hits := strings.Join(k.with("vector_hit("), " "); strings.Contains(hits, "knowledge/") {
+		t.Fatalf("a retrieved row became a vector hit: %s", hits)
+	}
+	if retrieved := k.with("retrieved_context("); len(retrieved) != 2 {
+		t.Fatalf("retrieved_context rows = %v, want both rows still witnessed", retrieved)
+	}
+
+	failing := &countingJudge{err: errors.New("503")}
+	k = &recordingKernel{}
+	if _, err := relevanceSelector(failing, 6, time.Second).runSelectionFor(context.Background(), atoms, relevanceContext(), k); err != nil {
+		t.Fatal(err)
+	}
+	if rel := k.with("atom_relevance("); len(rel) != 0 {
+		t.Fatalf("a failed judgment asserted %v", rel)
+	}
+}

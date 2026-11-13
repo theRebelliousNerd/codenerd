@@ -306,10 +306,21 @@ candidate_selection(Atom, Score) :-
 # context, conflict, dependency, and final budget checks still apply. The
 # retrieval already matched them to this task, so they enter at full score;
 # their IDs are content hashes, so no authored conflict names them.
+#
+# Jev reads retrieved rows as it reads the recall pool (internal/prompt
+# relevance.go, retrievedJudgmentSet), and a row it reads as not applying to
+# this request is refused like any other flesh: a lexical match of five rows
+# a source is not evidence that the row is about the task. Unsettled or
+# unjudged rows stay admitted -- a missing judgment is never a "no".
 candidate_selection(Atom, 100) :-
     retrieved_context(Atom),
     !blocked_by_context(Atom),
-    !prohibited(Atom).
+    !prohibited(Atom),
+    !refused_by_relevance(Atom).
+
+flesh_refused(Atom, /judged_does_not_apply) :-
+    retrieved_context(Atom),
+    atom_relevance_band(Atom, /does_not_apply).
 
 # --- 4. CONFLICT RESOLUTION (Score-Based) ---
 

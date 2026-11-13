@@ -845,6 +845,23 @@ func (s *AtomSelector) runSelection(
 				}
 			}
 		}
+		// Retrieved knowledge and learnings are judged too, apart from the
+		// recall pool: their retrieval is a lexical match of up to five rows
+		// per source, which admitted every row at full score whatever it
+		// said. Live 2026-11-12 a Go step's prompt was ~147k chars, about
+		// 100k of it 21 retrieved rows (project knowledge averaging 9.6k
+		// chars, three pushed experts' five rows each). A row Jev reads as
+		// not applying is refused (jit_compiler.mg); a failed judgment
+		// asserts nothing and leaves every row admitted, as before.
+		if rel := s.relevanceSnapshot(); rel.Judge != nil && cc.SemanticQuery != "" {
+			if retrieved := retrievedJudgmentSet(fleshAtoms, cc); len(retrieved) > 0 {
+				out := s.judgeRelevance(ctx, rel, cc, retrieved, fleshAtoms)
+				logRetrievedRelevance(cc, out, len(retrieved))
+				if out.Err == nil {
+					relFacts = append(relFacts, relevanceFacts(out, rel)...)
+				}
+			}
+		}
 		var err error
 		fleshFacts, err = s.buildFleshFacts(cc, fleshAtoms, forcedMandatory, vectorScores, slots)
 		if err == nil {
