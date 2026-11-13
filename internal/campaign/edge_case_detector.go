@@ -303,13 +303,16 @@ func (d *EdgeCaseDetector) logDecisionSummary(decisions []FileDecision) {
 // called types.go in different packages are different files with different
 // dependents. A file's dependents are the files whose imports reach it:
 //
-//   - a resolved file->file row dependency_link(Importer, File, _), which the
-//     scanner derives for every in-workspace import (world.ResolveDependencyLinks);
-//   - for a Go file, the raw row dependency_link(Importer, "pkg:<import path>", _)
-//     naming the file's package, since a Go import names a package, not a file.
+//   - the importers of the file's import unit: file_unit(File, Unit) names the
+//     unit (a Go package's import path, or the file itself where an import
+//     names a file) and import_unit(Importer, Unit) its importers;
+//   - for a Go file, the raw import rows dependency_link(Importer,
+//     "pkg:<import path>", _) naming the file's package, since a Go import
+//     names a package, not a file.
 //
-// For a Go file, an importer in the file's own directory is its package (or the
-// package's external test), not a dependent.
+// dependency_link's second argument is an import token, never a file, so no
+// lookup here treats it as one. For a Go file, an importer in the file's own
+// directory is its package (or the package's external test), not a dependent.
 func (d *EdgeCaseDetector) queryDependencies(ctx context.Context, decision *FileDecision, path string, run *edgeCaseRun) {
 	if err := ctx.Err(); err != nil || d.kernel == nil {
 		return
@@ -334,30 +337,51 @@ func (d *EdgeCaseDetector) queryDependencies(ctx context.Context, decision *File
 
 	isGo := strings.HasSuffix(self, ".go")
 	selfDir := pathpkg.Dir(self)
-	targets := []string{self}
-	if isGo {
-		if token := goPackageToken(run.goModule, self); token != "" {
-			targets = append(targets, token)
+	addImporter := func(raw any) {
+		importer := d.identity(d.parseArg(raw))
+		if importer == "" || importer == self {
+			return
 		}
+		if isGo && pathpkg.Dir(importer) == selfDir {
+			return
+		}
+		decision.Dependents = append(decision.Dependents, importer)
 	}
-	for _, target := range targets {
-		rows, err := core.BoundRows(d.kernel, "dependency_link", 3, map[int]any{1: target})
+
+	if units, err := core.BoundRows(d.kernel, "file_unit", 2, map[int]any{0: self}); err == nil {
+		for _, unitRow := range units {
+			if len(unitRow.Args) < 2 {
+				continue
+			}
+			unit := d.parseArg(unitRow.Args[1])
+			if unit == "" {
+				continue
+			}
+			importers, err := core.BoundRows(d.kernel, "import_unit", 2, map[int]any{1: unit})
+			if err != nil {
+				logging.CampaignDebug("edge case analysis: importers of unit %s: %v", unit, err)
+				continue
+			}
+			for _, row := range importers {
+				if len(row.Args) >= 2 {
+					addImporter(row.Args[0])
+				}
+			}
+		}
+	} else {
+		logging.CampaignDebug("edge case analysis: import unit of %s: %v", self, err)
+	}
+
+	// A Go test file is never imported, so its package's importers are not its own.
+	if token := goPackageToken(run.goModule, self); isGo && token != "" && !strings.HasSuffix(self, "_test.go") {
+		rows, err := core.BoundRows(d.kernel, "dependency_link", 3, map[int]any{1: token})
 		if err != nil {
-			logging.CampaignDebug("edge case analysis: dependents of %s via %s: %v", self, target, err)
-			continue
+			logging.CampaignDebug("edge case analysis: importers of %s: %v", token, err)
 		}
 		for _, row := range rows {
-			if len(row.Args) < 2 {
-				continue
+			if len(row.Args) >= 2 {
+				addImporter(row.Args[0])
 			}
-			importer := d.identity(d.parseArg(row.Args[0]))
-			if importer == "" || importer == self {
-				continue
-			}
-			if isGo && pathpkg.Dir(importer) == selfDir {
-				continue
-			}
-			decision.Dependents = append(decision.Dependents, importer)
 		}
 	}
 

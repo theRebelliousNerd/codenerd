@@ -87,16 +87,19 @@ func TestEdgeCaseDetector_GoFileDependentsComeFromPackageImports(t *testing.T) {
 }
 
 // Two files named types.go in different packages are different files: each
-// has its own dependents and its own complexity.
+// has its own dependents and its own complexity. The units are the files'
+// packages, as the scanner's file_unit/import_unit rows record them.
 func TestEdgeCaseDetector_SameBaseNameFilesDoNotShareDependents(t *testing.T) {
 	root := edgeCaseWorkspace(t)
-	k := loadedKernel(t, []core.Fact{
-		// Resolved file->file rows, as world.ResolveDependencyLinks derives them.
-		{Predicate: "dependency_link", Args: []any{"c/user.go", "a/types.go", "example.com/m/a"}},
-		{Predicate: "dependency_link", Args: []any{"d/other.go", "b/types.go", "example.com/m/b"}},
+	k := &boundOnlyKernel{}
+	k.Facts = []core.Fact{
+		{Predicate: "file_unit", Args: []any{"a/types.go", "example.com/m/a"}},
+		{Predicate: "file_unit", Args: []any{"b/types.go", "example.com/m/b"}},
+		{Predicate: "import_unit", Args: []any{"c/user.go", "example.com/m/a"}},
+		{Predicate: "import_unit", Args: []any{"d/other.go", "example.com/m/b"}},
 		{Predicate: "cyclomatic_complexity", Args: []any{"a/types.go", "Heavy", int64(14)}},
 		{Predicate: "cyclomatic_complexity", Args: []any{"b/types.go", "Light", int64(2)}},
-	})
+	}
 	detector := NewEdgeCaseDetector(k, root)
 
 	absA := filepath.Join(root, "a", "types.go")
@@ -126,7 +129,7 @@ type boundOnlyKernel struct {
 
 func (k *boundOnlyKernel) Query(predicate string) ([]core.Fact, error) {
 	switch predicate {
-	case "dependency_link", "cyclomatic_complexity":
+	case "dependency_link", "cyclomatic_complexity", "file_unit", "import_unit":
 		return nil, fmt.Errorf("whole relation %s requested", predicate)
 	}
 	return k.MockKernel.Query(predicate)
@@ -143,6 +146,8 @@ func TestEdgeCaseDetector_AsksOnlyForTheFilesRows(t *testing.T) {
 	k := &boundOnlyKernel{}
 	k.Facts = []core.Fact{
 		{Predicate: "dependency_link", Args: []any{"c/user.go", "pkg:example.com/m/a", "example.com/m/a"}},
+		{Predicate: "file_unit", Args: []any{"a/types.go", "example.com/m/a"}},
+		{Predicate: "import_unit", Args: []any{"c/user.go", "example.com/m/a"}},
 	}
 	decisions, err := NewEdgeCaseDetector(k, root).AnalyzeFiles(context.Background(), []string{"a/types.go"}, nil)
 	if err != nil {
@@ -153,7 +158,8 @@ func TestEdgeCaseDetector_AsksOnlyForTheFilesRows(t *testing.T) {
 	}
 	want := []string{
 		`dependency_link("a/types.go", V1, V2)`,
-		`dependency_link(V0, "a/types.go", V2)`,
+		`file_unit("a/types.go", V1)`,
+		`import_unit(V0, "example.com/m/a")`,
 		`dependency_link(V0, "pkg:example.com/m/a", V2)`,
 		`cyclomatic_complexity("a/types.go", V1, V2)`,
 	}
