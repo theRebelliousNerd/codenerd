@@ -418,6 +418,9 @@ var hostWitnessPredicates = map[string]struct{}{
 	// step it never edited; one that could write the projections or the
 	// verdict could declare the plan complete.
 	"step_execution": {}, "step_no_change_evidence": {}, "step_retried": {}, "step_file_net": {},
+	// A model that could write step_errored could halt a plan it did not
+	// want to finish.
+	"step_errored":         {},
 	"step_cover_candidate": {}, "step_file_covered": {},
 	"step_has_retried": {}, "step_has_no_change": {}, "step_has_cover": {},
 	"step_unresolved": {}, "step_reverted": {}, "step_next_action": {},

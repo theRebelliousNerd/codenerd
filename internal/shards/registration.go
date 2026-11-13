@@ -234,6 +234,11 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// with step_execution, and a split join would leave a
 				// reverted step complete on the shard that ships.
 				"step_execution", "step_no_change_evidence", "step_retried", "step_file_net",
+				// A pass that ended in an execution error: /halt_plan joins
+				// it with step_execution and step_has_retried, so it has the
+				// same home. Homed to the catch-all it split that join and
+				// the halt could never fire on the kernel that ships.
+				"step_errored",
 				// A repair episode's attempts (repair_episode.mg), with the
 				// turn facts they are cleaned up with.
 				"repair_attempt",
