@@ -142,6 +142,8 @@ func TestE2E_Perception_Adversarial_OutOfVocabulary(t *testing.T) {
 // =============================================================================
 
 func TestE2E_Perception_Adversarial_MangleInjection(t *testing.T) {
+	// TODO: Test temporal disconnects and deleted resources (e.g., user requests action on resource just deleted by autopoiesis)
+	// TODO: Assert perception layer does NOT attempt to validate file existence and remains stateless.
 	// Craft a response with Mangle injection in target and constraints
 	injectionResp := `{
 		"understanding": {
@@ -247,6 +249,8 @@ func TestE2E_Perception_Adversarial_MangleInjection(t *testing.T) {
 // =============================================================================
 
 func TestE2E_Perception_Adversarial_InputTruncation(t *testing.T) {
+	// TODO: Test extreme context environments and infinite monorepos (e.g., brownfield request on 50M line monorepo)
+	// TODO: Mock inputs suggesting massive context sizes and verify transducer maps scope/tools_needed without triggering OOM.
 	mockClient := newPCEMockClient(
 		`{"understanding":{"primary_intent":"fix","semantic_type":"state","action_type":"modify","domain":"general","scope":{"level":"file","target":"auth.go"},"user_constraints":[],"implicit_assumptions":[],"confidence":0.7,"signals":{"is_question":false,"is_hypothetical":false,"is_multi_step":false,"is_negated":false,"requires_confirmation":false,"urgency":"normal"},"suggested_approach":{"mode":"normal","primary_shard":"coder","tools_needed":[],"context_needed":[]}},"surface_response":"OK"}`,
 	)
@@ -294,6 +298,8 @@ func TestE2E_Perception_Adversarial_InputTruncation(t *testing.T) {
 // =============================================================================
 
 func TestE2E_Perception_Adversarial_NullAndEmptyVectors(t *testing.T) {
+	// TODO: Test deeply nested null structures (e.g., {"scope": null} or {"scope": {"target": null}})
+	// TODO: Verify ParseIntentWithContext behaves deterministically and does not nil-panic when dereferencing nested scope variables.
 	cases := []struct {
 		name     string
 		response string
@@ -308,6 +314,8 @@ func TestE2E_Perception_Adversarial_NullAndEmptyVectors(t *testing.T) {
 		},
 		{
 			name:     "type_coercion_invalid_types",
+			// TODO: Test polymorphic type spoofing (e.g., object instead of string: {"primary_intent": {"injected": "intent"}})
+			// TODO: Test numbers into string arrays (e.g., "tools_needed": [1, 2, 3]). Ensure graceful fallback intent on unmarshal errors.
 			response: `{"understanding":{"primary_intent":"explain","confidence":"high","signals":{"is_question":"true"}},"surface_response":"coerced"}`,
 		},
 	}
