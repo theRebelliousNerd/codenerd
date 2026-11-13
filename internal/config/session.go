@@ -55,6 +55,15 @@ type SessionConfig struct {
 	// RepairDiffTurnBytes bounds the whole turn diff a repair round is shown;
 	// files past it are named, not dropped.
 	RepairDiffTurnBytes int `json:"repair_diff_turn_bytes,omitempty"`
+	// PinRepairMaxAttempts caps the rounds the pinning gate gives the model
+	// to write tests that pin the turn's change (repair_episode.mg); past it
+	// the turn reports the unpinned changes as owed.
+	PinRepairMaxAttempts int `json:"pin_repair_max_attempts,omitempty"`
+	// PinGateSharePercent is the share, in percent, of what the turn had left
+	// when the pinning gate began that the gate and its repair rounds may
+	// spend; past it the turn reports the unpinned changes as owed. A turn
+	// with no deadline is bounded by the attempt cap alone.
+	PinGateSharePercent int `json:"pin_gate_share_percent,omitempty"`
 
 	// --- the turn's tools and its answer ---
 
@@ -100,6 +109,8 @@ func DefaultSessionConfig() SessionConfig {
 		RepairMaxAttempts:    3,
 		RepairDiffFileBytes:  8192,
 		RepairDiffTurnBytes:  24576,
+		PinRepairMaxAttempts: 2,
+		PinGateSharePercent:  25,
 		ToolTimeout:          "5m",
 		FinalAnswerReserve:   "5m",
 		HistoryTurnWindow:    &window,
@@ -137,6 +148,8 @@ func (c SessionConfig) WithDefaults() SessionConfig {
 	intOr(&c.RepairMaxAttempts, d.RepairMaxAttempts)
 	intOr(&c.RepairDiffFileBytes, d.RepairDiffFileBytes)
 	intOr(&c.RepairDiffTurnBytes, d.RepairDiffTurnBytes)
+	intOr(&c.PinRepairMaxAttempts, d.PinRepairMaxAttempts)
+	intOr(&c.PinGateSharePercent, d.PinGateSharePercent)
 	strOr(&c.ToolTimeout, d.ToolTimeout)
 	strOr(&c.FinalAnswerReserve, d.FinalAnswerReserve)
 	strOr(&c.LSPTimeout, d.LSPTimeout)
@@ -158,6 +171,8 @@ type SessionPolicy struct {
 	RepairMaxAttempts    int
 	RepairDiffFileBytes  int
 	RepairDiffTurnBytes  int
+	PinRepairMaxAttempts int
+	PinGateSharePercent  int
 	ToolTimeout          time.Duration
 	FinalAnswerReserve   time.Duration
 	HistoryTurnWindow    int
@@ -188,6 +203,8 @@ func (c SessionConfig) Resolve() (SessionPolicy, error) {
 		RepairMaxAttempts:    c.RepairMaxAttempts,
 		RepairDiffFileBytes:  c.RepairDiffFileBytes,
 		RepairDiffTurnBytes:  c.RepairDiffTurnBytes,
+		PinRepairMaxAttempts: c.PinRepairMaxAttempts,
+		PinGateSharePercent:  c.PinGateSharePercent,
 		ToolTimeout:          d(c.ToolTimeout),
 		FinalAnswerReserve:   d(c.FinalAnswerReserve),
 		HistoryTurnWindow:    *c.HistoryTurnWindow,
@@ -213,6 +230,7 @@ func (c SessionConfig) Check(prefix string) []Problem {
 		{"step_plan_min_sites", c.StepPlanMinSites},
 		{"step_plan_max_steps", c.StepPlanMaxSteps},
 		{"repair_max_attempts", c.RepairMaxAttempts},
+		{"pin_repair_max_attempts", c.PinRepairMaxAttempts},
 		{"history_char_budget", c.HistoryCharBudget},
 	} {
 		if f.v < 1 {
@@ -241,6 +259,9 @@ func (c SessionConfig) Check(prefix string) []Problem {
 	if c.StepPlanMinSites >= 1 && c.StepPlanMaxSteps >= 1 && c.StepPlanMaxSteps < c.StepPlanMinSites {
 		add("step_plan_max_steps", fmt.Sprintf("%d is below step_plan_min_sites (%d): no plan a brief qualifies for could be run", c.StepPlanMaxSteps, c.StepPlanMinSites), "a cap at least step_plan_min_sites")
 	}
+	if c.PinGateSharePercent < 1 || c.PinGateSharePercent > 100 {
+		add("pin_gate_share_percent", fmt.Sprintf("%d is not a percent from 1 to 100", c.PinGateSharePercent), "a percent from 1 to 100, or remove the key for the default")
+	}
 	if *c.HistoryTurnWindow < 0 {
 		add("history_turn_window", fmt.Sprintf("%d is negative", *c.HistoryTurnWindow), "0 to send no prior turn, or a message count")
 	}
@@ -268,10 +289,13 @@ func (c SessionConfig) Check(prefix string) []Problem {
 // Params are the session knobs the kernel's rules read, as config_param
 // rows. Each key is declared config_param_required(/session, Key) next to
 // the rules that read it: turn_steps.mg (step_plan_min_sites) and
-// repair_episode.mg (repair_max_attempts).
+// repair_episode.mg (repair_max_attempts, pin_repair_max_attempts,
+// pin_gate_share_percent).
 func (p SessionPolicy) Params() []Param {
 	return []Param{
 		{Key: "/session_step_plan_min_sites", Value: int64(p.StepPlanMinSites)},
 		{Key: "/session_repair_max_attempts", Value: int64(p.RepairMaxAttempts)},
+		{Key: "/session_pin_repair_max_attempts", Value: int64(p.PinRepairMaxAttempts)},
+		{Key: "/session_pin_gate_share_percent", Value: int64(p.PinGateSharePercent)},
 	}
 }

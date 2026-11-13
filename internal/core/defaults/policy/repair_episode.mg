@@ -30,6 +30,22 @@ Decl repair_should_restart(Episode) bound [/name].
 Decl repair_not_converging_since_restart(Episode) bound [/name].
 
 config_param_required(/session, /session_repair_max_attempts).
+config_param_required(/session, /session_pin_repair_max_attempts).
+config_param_required(/session, /session_pin_gate_share_percent).
+
+# repair_episode_kind(Episode, Kind): the gate whose failure the episode
+# repairs (/build, /tests, /vet, /coverage, /pinning, ...), asserted when the
+# episode starts.
+Decl repair_episode_kind(Episode, Kind) bound [/name, /name].
+# repair_episode_elapsed_ms(Episode, Ms) / repair_episode_budget_ms(Episode,
+# Ms): measured after each failed attempt of a pinning episode -- the
+# wall-clock the gate and its rounds have spent since the gate began, and what
+# the turn had left when it began (its deadline). A turn with no deadline has
+# no budget row, and only the attempt cap bounds it.
+Decl repair_episode_elapsed_ms(Episode, Ms) bound [/name, /number].
+Decl repair_episode_budget_ms(Episode, Ms) bound [/name, /number].
+Decl repair_over_share(Episode) bound [/name].
+Decl repair_pin_exhausted(Episode) bound [/name].
 
 repair_attempt_count(E, N) :-
     repair_attempt(E, A, W, D)
@@ -60,13 +76,34 @@ repair_not_converging(E) :-
 # failure that repeats again after it gives up, as before.
 repair_has_restarted(E) :- repair_restart(E, _).
 repair_should_restart(E) :-
-    repair_not_converging(E), !repair_has_restarted(E), !repair_exhausted(E).
+    repair_not_converging(E), !repair_has_restarted(E), !repair_exhausted(E), !repair_over_share(E).
 repair_not_converging_since_restart(E) :-
     repair_restart(E, R),
     repair_attempt(E, A1, _, D),
     repair_attempt(E, A2, /true, D),
     R < A1, A1 < A2.
 
+# The pinning gate has its own cap and a share of the turn's time. It asks the
+# model to write tests for a change that already builds and passes; what it
+# cannot get in its rounds, inside its share, the turn reports as owed rather
+# than grinding the rest of the turn (or a fix chain's budget) on it.
+repair_pin_exhausted(E) :-
+    repair_episode_kind(E, /pinning),
+    repair_attempt_count(E, N),
+    config_param(/session_pin_repair_max_attempts, M),
+    N >= M.
+
+repair_over_share(E) :-
+    repair_episode_kind(E, /pinning),
+    repair_episode_elapsed_ms(E, Used),
+    repair_episode_budget_ms(E, Budget),
+    config_param(/session_pin_gate_share_percent, Percent),
+    Scaled = fn:mult(Used, 100),
+    Allowed = fn:mult(Budget, Percent),
+    Scaled >= Allowed.
+
+repair_exhausted(E) :- repair_pin_exhausted(E).
+repair_gives_up(E) :- repair_over_share(E).
 repair_gives_up(E) :- repair_exhausted(E).
 repair_gives_up(E) :- repair_not_converging_since_restart(E).
 

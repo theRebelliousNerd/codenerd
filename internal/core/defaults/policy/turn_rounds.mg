@@ -105,3 +105,36 @@ turn_wrote(Turn) :- turn_write_tools(Turn, Count), Count > 0.
 Decl fix_verification_scope(Phase, Scope) bound [/name, /name].
 fix_verification_scope(/working, /narrow).
 fix_verification_scope(/final, /full).
+
+# --- What no test can reasonably pin -----------------------------------------
+#
+# The pin gate charges a change the turn's tests do not notice taken out, and
+# gives the model rounds to write a test that does; the /survivors round does
+# the same for a decision held at a constant. Some cannot be pinned: a branch
+# only a lost race takes (a LoadOrStore that finds the value already stored),
+# a change that only makes the code faster. Chasing them spends the rounds and
+# the turn's time for nothing. Two independent measurements together classify
+# one as not pinnable: the package's whole suite, not just the turn's tests,
+# passes with the change taken out (turn_pin_suite_equivalent), and Jev reads
+# that taking it out changes nothing a test can observe and force -- only
+# speed, memory, or an interleaving no deterministic test brings about
+# (turn_pin_effect_reading at or below jev_no_percent). Either alone is not
+# enough: an untested behaviour change also passes the whole suite.
+# Producer: internal/session/pin_classify.go. Consumers: the pin gate and the
+# survivors round, which drop a not-pinnable change from what they ask for and
+# name it, with its evidence, in the turn's report.
+Decl turn_pin_suite_equivalent(Turn, Change) bound [/name, /string].
+Decl turn_pin_effect_reading(Turn, Change, Percent) bound [/name, /string, /number].
+Decl turn_pin_not_pinnable(Turn, Change) bound [/name, /string].
+# turn_pin_suite_wanted(Turn, Change): Jev read no observable effect, so the
+# whole-suite run is worth making (it costs one package test run).
+Decl turn_pin_suite_wanted(Turn, Change) bound [/name, /string].
+
+turn_pin_suite_wanted(Turn, Change) :-
+    turn_pin_effect_reading(Turn, Change, Percent),
+    config_param(/jev_no_percent, No),
+    Percent <= No.
+
+turn_pin_not_pinnable(Turn, Change) :-
+    turn_pin_suite_wanted(Turn, Change),
+    turn_pin_suite_equivalent(Turn, Change).

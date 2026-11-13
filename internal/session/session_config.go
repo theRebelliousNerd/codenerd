@@ -32,6 +32,8 @@ func ExecutorConfigFrom(p config.SessionPolicy, working config.WorkingConfig) Ex
 		RepairMaxAttempts:    p.RepairMaxAttempts,
 		RepairDiffFileBytes:  p.RepairDiffFileBytes,
 		RepairDiffTurnBytes:  p.RepairDiffTurnBytes,
+		PinRepairMaxAttempts: p.PinRepairMaxAttempts,
+		PinGateSharePercent:  p.PinGateSharePercent,
 		FinalAnswerReserve:   p.FinalAnswerReserve,
 		EnableSafetyGate:     true,
 		TokenBudget:          DefaultTokenBudget(),
@@ -58,7 +60,29 @@ func (c ExecutorConfig) sessionParams() []config.Param {
 	if minSites <= 0 {
 		minSites = defaultSessionPolicy.StepPlanMinSites
 	}
-	return config.SessionPolicy{StepPlanMinSites: minSites, RepairMaxAttempts: c.sessionRepairMaxAttempts()}.Params()
+	return config.SessionPolicy{
+		StepPlanMinSites:     minSites,
+		RepairMaxAttempts:    c.sessionRepairMaxAttempts(),
+		PinRepairMaxAttempts: c.pinRepairMaxAttempts(),
+		PinGateSharePercent:  c.pinGateSharePercent(),
+	}.Params()
+}
+
+// pinRepairMaxAttempts and pinGateSharePercent are the pinning gate's bounds
+// (session.pin_repair_max_attempts, session.pin_gate_share_percent); a zero
+// field takes the section's default.
+func (c ExecutorConfig) pinRepairMaxAttempts() int {
+	if c.PinRepairMaxAttempts > 0 {
+		return c.PinRepairMaxAttempts
+	}
+	return defaultSessionPolicy.PinRepairMaxAttempts
+}
+
+func (c ExecutorConfig) pinGateSharePercent() int {
+	if c.PinGateSharePercent > 0 {
+		return c.PinGateSharePercent
+	}
+	return defaultSessionPolicy.PinGateSharePercent
 }
 
 // sessionRepairMaxAttempts is the attempt cap repair_exhausted reads

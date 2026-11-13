@@ -74,6 +74,12 @@ type TypeSafeConfig struct {
 	// specialists out of the pre-edit consult (policy/shard_experts.mg
 	// expert_step_declines). Off, the file's imports decide.
 	StepTechnologies *bool `json:"step_technologies,omitempty"`
+	// PinEquivalence: for a change the turn's tests do not notice, Jev reads
+	// whether taking it out would change anything a test can observe and
+	// force; with the package's whole suite also blind to it, the kernel
+	// classifies it not pinnable (turn_rounds.mg turn_pin_not_pinnable)
+	// instead of giving the model repair rounds for it.
+	PinEquivalence *bool `json:"pin_equivalence,omitempty"`
 	// AtomRelevance: Jev judges, per turn, whether each pooled flesh prompt
 	// atom applies to the request (internal/atomjudge, jit_compiler.mg).
 	AtomRelevance *bool `json:"atom_relevance,omitempty"`
@@ -119,6 +125,8 @@ type TypeSafeUses struct {
 	FinalReports bool
 	// StepTechnologies is the planned step's technology reading.
 	StepTechnologies bool
+	// PinEquivalence is the pinning gate's not-pinnable reading.
+	PinEquivalence bool
 	// TurnJudgmentTimeout bounds one turn's judgments (turn_judgment_timeout).
 	TurnJudgmentTimeout time.Duration
 	// RecentTurns bounds the prior turns a turn judgment sees.
@@ -153,6 +161,7 @@ func DefaultTypeSafeUses() TypeSafeUses {
 		InstructionCoverage: true,
 		FinalReports:        true,
 		StepTechnologies:    true,
+		PinEquivalence:      true,
 		TurnJudgmentTimeout: defaultTurnJudgmentTimeout,
 		RecentTurns:         12, BatchSize: 20, RelevancePoolFactor: 6, RelevanceHeadBytes: 3000, FindingContextLines: 12,
 		AtomRelevancePool: 40, AtomRelevanceTimeout: defaultAtomRelevanceTimeout,
@@ -188,6 +197,7 @@ func (c *TypeSafeConfig) Uses() TypeSafeUses {
 	u.InstructionCoverage = on(c.InstructionCoverage, u.InstructionCoverage)
 	u.FinalReports = on(c.FinalReports, u.FinalReports)
 	u.StepTechnologies = on(c.StepTechnologies, u.StepTechnologies)
+	u.PinEquivalence = on(c.PinEquivalence, u.PinEquivalence)
 	set := func(v int, dst *int) {
 		if v > 0 {
 			*dst = v

@@ -81,6 +81,8 @@ type Spawner struct {
 	// stepReader is the planned-step technology reading every subagent
 	// inherits (SetStepTechnologyReader).
 	stepReader experts.StepReader
+	// pinJudge is the not-pinnable reading every subagent inherits.
+	pinJudge PinEffectJudge
 	// expertConsultant runs the shard-agent consultations the kernel derives
 	// for a subagent's turn (expert_spawn.go). A consultation is itself a
 	// subagent running as the agent, which expert_spawn never fires for.
@@ -322,6 +324,20 @@ func (s *Spawner) SetStepTechnologyReader(r experts.StepReader) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stepReader = r
+}
+
+// SetPinEffectJudge attaches the pinning gate's not-pinnable reading every
+// subagent spawned from here on inherits.
+func (s *Spawner) SetPinEffectJudge(j PinEffectJudge) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pinJudge = j
+}
+
+func (s *Spawner) currentPinJudge() PinEffectJudge {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.pinJudge
 }
 
 func (s *Spawner) currentStepReader() experts.StepReader {
@@ -607,6 +623,9 @@ func (s *Spawner) Spawn(ctx context.Context, req SpawnRequest) (*SubAgent, error
 	}
 	if r := s.currentStepReader(); r != nil {
 		agent.executor.SetStepTechnologyReader(r)
+	}
+	if j := s.currentPinJudge(); j != nil {
+		agent.executor.SetPinEffectJudge(j)
 	}
 	if c := s.currentExpertConsultant(); c != nil {
 		agent.executor.SetExpertConsultant(c)

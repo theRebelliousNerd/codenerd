@@ -46,3 +46,20 @@ func stepTechnologyReaderFor(appCfg *config.UserConfig) experts.StepReader {
 	}
 	return turnjudge.StepTechnologyReader{Asker: jev}
 }
+
+// pinEffectJudgeFor is the pinning gate's not-pinnable reading
+// (typesafe.pin_equivalence). Nil when the section or the use is off.
+func pinEffectJudgeFor(appCfg *config.UserConfig) session.PinEffectJudge {
+	if appCfg == nil || !appCfg.TypeSafe.Uses().PinEquivalence {
+		return nil
+	}
+	jev, err := typesafe.FromConfig(appCfg.TypeSafe)
+	if err != nil {
+		logging.Get(logging.CategoryBoot).Warn("Jev pin effect reading off: %v", err)
+		return nil
+	}
+	if jev == nil {
+		return nil
+	}
+	return turnjudge.PinEffectReader{Asker: jev}
+}

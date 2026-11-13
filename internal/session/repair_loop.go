@@ -70,6 +70,9 @@ type RepairRecord struct {
 	Attempts       []RepairAttempt
 	EditedFiles    []string
 	Followups      []string
+	// GaveUp is the policy's reason the episode stopped without passing
+	// ("" when it passed, was cancelled or had no verdict).
+	GaveUp string
 }
 
 // repairEpisodeContext is what a repair episode runs under -- its model calls,
@@ -153,6 +156,12 @@ type repairSpec struct {
 	// pinning, removed_tests): its write guard also admits the existing
 	// _test.go files beside the turn's Go files (repairWriteGuard).
 	writesTests bool
+	// gateStarted and gateBudget measure a gate's wall-clock share
+	// (repair_episode.mg repair_over_share): when the gate began measuring,
+	// and what the turn had left then. A zero gateStarted measures nothing;
+	// a zero budget (no deadline) leaves the attempt cap alone to bound it.
+	gateStarted time.Time
+	gateBudget  time.Duration
 }
 
 // broken is the give-up phrase for the episode as it ended.
@@ -231,6 +240,9 @@ func (e *Executor) repairLoop(
 	episode := newRepairEpisodeAtom()
 	epCtx, cancelEpisode := repairEpisodeContext(ctx)
 	defer cancelEpisode()
+	if e.kernel != nil {
+		e.assertTurnFact(types.Fact{Predicate: "repair_episode_kind", Args: []any{episode, types.MangleAtom("/" + spec.kind)}})
+	}
 
 	var last *types.LLMToolResponse
 	var allErrs []string
@@ -345,6 +357,11 @@ func (e *Executor) repairLoop(
 		case verdict == VerifyFailed:
 			rec.Cost.Backtracks++
 			failure = rechecked
+			// The gate's time so far against its share of the turn.
+			if !spec.gateStarted.IsZero() && spec.gateBudget > 0 {
+				e.assertTurnFact(types.Fact{Predicate: "repair_episode_elapsed_ms", Args: []any{episode, time.Since(spec.gateStarted).Milliseconds()}})
+				e.assertTurnFact(types.Fact{Predicate: "repair_episode_budget_ms", Args: []any{episode, spec.gateBudget.Milliseconds()}})
+			}
 			// What comes next is the policy's (repair_episode.mg): another
 			// attempt, under which regime, a restart, or giving up.
 			next := e.nextRepairMove(episode, attempt, wrote, rechecked.Output)
@@ -386,6 +403,7 @@ func (e *Executor) repairLoop(
 
 	rec.EditedFiles = editedFilesFor(result)
 	rec.Followups = spec.followups()
+	rec.GaveUp = gaveUp
 	// The give-up is the turn's verdict, which the turn's error reports
 	// (ErrVerificationFailed below): Info, like the rounds above.
 	logging.Get(logging.CategorySession).Info(

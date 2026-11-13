@@ -242,6 +242,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// A repair episode's attempts (repair_episode.mg), with the
 				// turn facts they are cleaned up with.
 				"repair_attempt",
+				// The episode's gate and its time against its share
+				// (repair_pin_exhausted, repair_over_share) join the attempts.
+				"repair_episode_kind", "repair_episode_elapsed_ms", "repair_episode_budget_ms",
 				// A repair episode's restart (repair_episode.mg /restart),
 				// joined against its attempts.
 				"repair_restart",
@@ -284,6 +287,9 @@ func DefaultShardPredicateManifests() []ShardPredicateManifest {
 				// The pin gate's survivor count, which owes the /survivors
 				// round.
 				"turn_pin_survivors",
+				// The not-pinnable evidence (turn_rounds.mg
+				// turn_pin_not_pinnable), beside the turn it classifies.
+				"turn_pin_effect_reading", "turn_pin_suite_equivalent",
 				// What the /unwired round measured and Jev's reading of the
 				// model's reasons (turn_unwired.mg). turn_verified negates
 				// has_red_gate, which they derive; homed elsewhere, that

@@ -693,6 +693,7 @@ func verifyPinning(ctx context.Context, workspace string, result *ExecutionResul
 	}
 	doneUnits := liveVerification(ctx, []string{"pinning:", fmt.Sprintf("%d change(s) taken out one at a time against %d test(s)", len(units), len(names))}, "")
 	unpinned, unmeasured := measureUnits(ctx, workspace, units, runArg, names, pkgs, bound, memo)
+	result.pinUnpinned = unitsLabeled(units, unpinned)
 	doneUnits(pinRoundOutcome(ctx, unpinned, unmeasured))
 	if errors.Is(ctx.Err(), context.Canceled) {
 		return BuildVerification{Outcome: VerifyCanceled, Reason: "canceled while measuring", Duration: time.Since(start)}
@@ -709,6 +710,7 @@ func verifyPinning(ctx context.Context, workspace string, result *ExecutionResul
 		survived, _ := measureUnits(ctx, workspace, conditions, runArg, names, pkgs, bound, memo)
 		doneConditions(pinRoundOutcome(ctx, nil, nil))
 		result.PinAdvisory = survived
+		result.pinSurvived = unitsLabeled(conditions, survived)
 		if len(survived) > 0 {
 			logging.Get(logging.CategorySession).Info(
 				"%d decision(s) this turn made are not distinguished by the tests it wrote (not charged):\n%s",
@@ -726,6 +728,21 @@ func verifyPinning(ctx context.Context, workspace string, result *ExecutionResul
 	default:
 		return BuildVerification{Ran: true, OK: true, Outcome: VerifyPassed, Command: command, Duration: time.Since(start)}
 	}
+}
+
+// unitsLabeled are the units whose labels are in labels, in labels' order.
+func unitsLabeled(units []pinUnit, labels []string) []pinUnit {
+	byLabel := make(map[string]pinUnit, len(units))
+	for _, u := range units {
+		byLabel[u.label()] = u
+	}
+	out := make([]pinUnit, 0, len(labels))
+	for _, l := range labels {
+		if u, ok := byLabel[l]; ok {
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 // pinWorkers is how many changes are measured at once. Each measurement is a
@@ -911,7 +928,15 @@ func (e *Executor) verifyAndRepairPinning(
 		return nil, nil, nil
 	}
 	workspace := e.workspaceForVerification()
+	// The gate's share of the turn is of what the turn had left when the
+	// gate began (repair_episode.mg repair_over_share).
+	gateStarted := time.Now()
+	var gateBudget time.Duration
+	if deadline, ok := ctx.Deadline(); ok {
+		gateBudget = time.Until(deadline)
+	}
 	result.PinCheck = verifyPinning(ctx, workspace, result, true)
+	e.classifyUnpinnable(ctx, workspace, result)
 	if result.PinCheck.Verdict() != VerifyFailed || trp == nil {
 		return nil, nil, nil
 	}
@@ -925,12 +950,15 @@ func (e *Executor) verifyAndRepairPinning(
 		},
 		brokeTestsPrompt: pinningBrokeTestsPrompt,
 		writesTests:      true,
+		gateStarted:      gateStarted,
+		gateBudget:       gateBudget,
 		recheck: func(epCtx context.Context) (bool, repairFailure, VerifyOutcome) {
 			if _, held, failure, verdict := e.recheckOwnTests(epCtx, workspace, result, false); !held {
 				return false, failure, verdict
 			}
-			p := verifyPinning(epCtx, workspace, result, true)
-			result.PinCheck = p
+			result.PinCheck = verifyPinning(epCtx, workspace, result, true)
+			e.classifyUnpinnable(epCtx, workspace, result)
+			p := result.PinCheck
 			snap, green, greenPin = snapshotTurnFiles(workspace, result), result.TestCheck, p
 			if p.Verdict() == VerifyPassed {
 				return true, repairFailure{}, VerifyPassed
@@ -948,5 +976,10 @@ func (e *Executor) verifyAndRepairPinning(
 		repaired = nil
 	}
 	result.PinCheck.Repair = rec
+	if rec != nil && rec.GaveUp != "" && result.PinCheck.Verdict() == VerifyFailed {
+		// What the gate could not get pinned in its rounds and its share is
+		// owed by the turn, named, not ground on.
+		result.PinCheck.Reason = result.PinCheck.Reason + "; owed: the gate stopped because " + rec.GaveUp
+	}
 	return repaired, repairErrs, settleForcingRepair(err)
 }

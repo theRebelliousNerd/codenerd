@@ -2736,6 +2736,12 @@ func initFinalExecutors(bctx *bootContext) error {
 		bctx.sessionExecutor.SetStepTechnologyReader(reader)
 		bctx.sessionSpawner.SetStepTechnologyReader(reader)
 	}
+	// A change no test can force is classified, not chased
+	// (turn_rounds.mg turn_pin_not_pinnable).
+	if judge := pinEffectJudgeFor(bctx.appCfg); judge != nil {
+		bctx.sessionExecutor.SetPinEffectJudge(judge)
+		bctx.sessionSpawner.SetPinEffectJudge(judge)
+	}
 	bctx.sessionSpawner.SetExecutorConfig(&execCfg)
 	bctx.sessionSpawner.SetSessionID(bctx.sessionID)
 	bctx.sessionSpawner.SetApprovalBroker(bctx.approvals)

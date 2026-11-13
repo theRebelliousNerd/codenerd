@@ -116,5 +116,11 @@ func (e *Executor) repairGiveUpReason(episodeRows func(string) ([]types.Fact, er
 	if rows, err := episodeRows("repair_not_converging_since_restart"); err == nil && len(rows) > 0 {
 		return "the same failure survived two edits, before and after a restart from a different cause"
 	}
+	if rows, err := episodeRows("repair_over_share"); err == nil && len(rows) > 0 {
+		return fmt.Sprintf("the pinning gate spent its share of the turn (session.pin_gate_share_percent=%d)", e.configSnapshot().pinGateSharePercent())
+	}
+	if rows, err := episodeRows("repair_pin_exhausted"); err == nil && len(rows) > 0 {
+		return fmt.Sprintf("the pinning gate's round cap (session.pin_repair_max_attempts=%d) is reached", e.configSnapshot().pinRepairMaxAttempts())
+	}
 	return fmt.Sprintf("the attempt cap (session.repair_max_attempts=%d) is reached", e.configSnapshot().sessionRepairMaxAttempts())
 }

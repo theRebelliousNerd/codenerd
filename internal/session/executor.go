@@ -287,6 +287,10 @@ type Executor struct {
 	// write (Jev, typesafe.step_technologies) before the step's experts are
 	// selected (expert_step_reading). Nil: the file's imports decide.
 	stepReader experts.StepReader
+	// pinJudge reads whether a change the turn's tests do not notice would be
+	// observable at all (typesafe.pin_equivalence, pin_classify.go). Nil: no
+	// change is classified not pinnable.
+	pinJudge PinEffectJudge
 	// expertConsultant runs the shard-agent consultations the kernel derives
 	// for a turn (expert_spawn, policy/shard_experts.mg): the JITExecutor's
 	// SpawnConsultation, the machinery chat consultations use. Nil: the turn
@@ -357,6 +361,14 @@ type ExecutorConfig struct {
 	// the section's default.
 	RepairDiffFileBytes int
 	RepairDiffTurnBytes int
+
+	// PinRepairMaxAttempts and PinGateSharePercent bound the pinning gate's
+	// repair rounds and its wall-clock share of what the turn had left when
+	// the gate began (session.pin_repair_max_attempts,
+	// session.pin_gate_share_percent; repair_episode.mg). Zero takes the
+	// section's default.
+	PinRepairMaxAttempts int
+	PinGateSharePercent  int
 
 	// StepPlanMinSites is how many edit sites a write-oriented brief must
 	// name before the executive spends a planning call on it; the policy
@@ -750,6 +762,7 @@ func (e *Executor) CloneForTask() *Executor {
 	// work is pushed back too (finish_round.go).
 	clone.reportJudge = e.reportJudge
 	clone.stepReader = e.stepReader
+	clone.pinJudge = e.pinJudge
 	// A delegated task is where a fix runs: the shard agents the kernel
 	// routes to it are consulted from the clone.
 	clone.expertConsultant = e.expertConsultant
@@ -966,6 +979,13 @@ type ExecutionResult struct {
 	// wrote distinguishes (condition_units.go). Recorded and handed to the
 	// model, never charged: a forced guard can be unanswerable.
 	PinAdvisory []string
+	// PinNotPinnable names the changes and decisions the kernel classified
+	// not pinnable (turn_pin_not_pinnable), each with its evidence; they are
+	// dropped from what the pin gate and the survivors round ask for.
+	PinNotPinnable []string
+	// pinUnpinned and pinSurvived are the units behind the pin gate's
+	// unpinned list and PinAdvisory, for classification (pin_classify.go).
+	pinUnpinned, pinSurvived []pinUnit
 	// ElementUncovered names the changed elements (turn_changed_element refs)
 	// whose statement blocks the coverage run shows and never executed
 	// (turn_element_coverage.go). Set by narrowToChangedLines; nil when no
