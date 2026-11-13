@@ -60,17 +60,17 @@
 
     - `file_topology(Path, Hash, Language, LastModified, IsTestFile)` over `/string, /string, /name, /number, /name`; `IsTestFile` is `/true` or `/false`.
     - `symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature)` over `/string, /name, /name, /string, /string`.
-    - `dependency_link(CallerID, CalleeID, ImportPath)` over three strings.
-    - `file_imports(Importer, Imported)` over two strings.
+    - `dependency_link(File, Token, ImportPath)` over three strings: one raw import statement, `Token` being `pkg:`, `mod:` or `crate:` and the path.
+    - `import_unit(File, Unit)` and `file_unit(File, Unit)` over two strings each: the in-workspace import graph. A unit is what an import names (a Go package's import path, or the file itself where an import names one file). `File` imports `Other` when `import_unit(File, U), file_unit(Other, U)`.
     - `file_content(FilePath, Content)` over two strings; keep large content out of rules.
 
     ```mangle
     go_source(Path) :- file_topology(Path, H, /go, M, /false).
-    imports_test_file(Importer) :- file_imports(Importer, Imported), file_topology(Imported, H, L, M, /true).
+    imports_generated_file(Importer) :- generated_code(Imported, G, T), file_unit(Imported, Unit), import_unit(Importer, Unit).
     exported_function(Id, Where) :- symbol_graph(Id, /function, /public, Where, Sig).
     ```
 
-    `dependency_link` is file level and large: join it last, after a selective premise has bound a path.
+    There is no file-to-file import relation to scan: start from the file a selective premise has bound and join the two import relations through the unit.
 
 - id: "language/mangle/docs/codenerd/tests_and_diagnostics"
   category: "language"
