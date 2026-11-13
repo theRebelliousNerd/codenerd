@@ -28,6 +28,7 @@ func Other() int { return 2 }
 		after   string
 		want    []string
 		fallbak string
+		imports bool
 	}{
 		{name: "identical", after: base},
 		{name: "comments and formatting are not changes", after: strings.Replace(strings.Replace(base, "// Doc comment.", "// Another doc comment.\n// With two lines.", 1), "func Leaf() int { return 1 }", "func Leaf() int {\n\t// explained\n\treturn 1\n}", 1)},
@@ -40,7 +41,14 @@ func Other() int { return 2 }
 		{name: "signature", after: strings.Replace(base, "func Leaf() int", "func Leaf() int64", 1), fallbak: "signature of Leaf"},
 		{name: "receiver kind", after: strings.Replace(base, "func (b Box[T]) Len()", "func (b *Box[T]) Len()", 1), fallbak: "signature of Box.Len"},
 		{name: "struct field", after: strings.Replace(base, "struct{ v T }", "struct {\n\tv T\n\tw int\n}", 1), fallbak: "package-level"},
-		{name: "import", after: strings.Replace(base, `import "strings"`, "import (\n\t\"strings\"\n\t\"fmt\"\n)", 1) + "\nvar _ = fmt.Sprint\n", fallbak: "imports changed"},
+		{name: "import added", after: strings.Replace(strings.Replace(base, `import "strings"`, "import (\n\t\"fmt\"\n\t\"strings\"\n)", 1), "return 1 }", "return len(fmt.Sprint(1)) }", 1), want: []string{"Leaf"}, imports: true},
+		{name: "import removed", after: strings.Replace(strings.Replace(base, `import "strings"`, "", 1), `return len(strings.TrimSpace("x"))`, "return 1", 1), want: []string{"Box.Len"}, imports: true},
+		{name: "import swapped", after: strings.Replace(base, `import "strings"`, `import strings "example.com/strings"`, 1), fallbak: "both removed and added"},
+		{name: "dot import", after: strings.Replace(base, `import "strings"`, "import (\n\t. \"fmt\"\n\t\"strings\"\n)", 1), fallbak: "dot import"},
+		{name: "added inert var", after: base + "\nvar cache map[string]int\n\nvar hook = func() int { return Leaf() }\n", want: nil},
+		{name: "added var whose initializer calls", after: base + "\nvar upper = strings.ToUpper(\"a\")\n", fallbak: "calls a function at package initialization"},
+		{name: "added var shadowing a builtin", after: base + "\nvar len = 3\n", fallbak: "shadows a predeclared identifier"},
+		{name: "added type shadowing a builtin", after: base + "\ntype error struct{}\n", fallbak: "shadows a predeclared identifier"},
 		{name: "directive", after: strings.Replace(base, "func Leaf()", "//go:noinline\nfunc Leaf()", 1), fallbak: "directive"},
 		{name: "does not parse", after: "package p\n\nfunc (", fallbak: "does not parse"},
 		{name: "cgo", after: strings.Replace(base, `import "strings"`, "import \"C\"\nimport \"strings\"", 1), fallbak: "cgo"},
@@ -48,7 +56,7 @@ func Other() int { return 2 }
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, why := diffGoFile("p.go", []byte(base), true, []byte(tc.after))
+			got, imports, why := diffGoFile("p.go", []byte(base), true, []byte(tc.after))
 			if tc.fallbak != "" {
 				if !strings.Contains(why, tc.fallbak) {
 					t.Fatalf("why = %q, want it to say %q (changed %v)", why, tc.fallbak, got)
@@ -65,6 +73,9 @@ func Other() int { return 2 }
 			if !slices.Equal(names, tc.want) {
 				t.Fatalf("changed = %v, want %v", names, tc.want)
 			}
+			if (imports != nil) != tc.imports {
+				t.Fatalf("import edit = %+v, want one: %v", imports, tc.imports)
+			}
 		})
 	}
 }
@@ -72,7 +83,7 @@ func Other() int { return 2 }
 func TestDiffGoFile_ALinknameIsNeverBodyOnly(t *testing.T) {
 	t.Parallel()
 	src := "package p\n\nimport _ \"unsafe\"\n\n//go:linkname f runtime.f\nfunc f() int { return 1 }\n"
-	_, why := diffGoFile("p.go", []byte(src), true, []byte(strings.Replace(src, "return 1", "return 2", 1)))
+	_, _, why := diffGoFile("p.go", []byte(src), true, []byte(strings.Replace(src, "return 1", "return 2", 1)))
 	if !strings.Contains(why, "linkname") {
 		t.Fatalf("why = %q, want go:linkname to force the fallback", why)
 	}

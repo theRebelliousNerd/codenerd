@@ -106,9 +106,10 @@ func TestGateTests_AnImporterFailingBeforeTheTurnIsNotCharged(t *testing.T) {
 		"package b\n\nimport \"testing\"\n\nfunc TestAlreadyRed(t *testing.T) { t.Fatal(\"red before the turn\") }\n")
 	result := mutationResult()
 	result.WrittenPaths = []string{"a/a.go"}
-	// The turn added a package-level const, which no call graph can vouch for, so
-	// every importer test runs; b's failure has nothing to do with it.
-	writeWorkspaceFile(t, ws, "a/a.go", aBefore+"\nconst Added = 2\n")
+	// The turn added a package-level var whose initializer runs at package
+	// initialization, which no call graph can vouch for, so every importer
+	// test runs; b's failure has nothing to do with it.
+	writeWorkspaceFile(t, ws, "a/a.go", aBefore+"\nvar Added = Name()\n")
 	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(aBefore)}
 
 	v, _ := gateTests(context.Background(), ws, result, false)

@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	gotypes "go/types"
 	"os"
 	"path/filepath"
 	"slices"
@@ -58,6 +59,12 @@ type bodyChanges struct {
 	// Fallback is the reason a selection would be unsound; empty when Funcs
 	// is the whole truth.
 	Fallback string
+	// Imports are the written files whose import lists changed, every
+	// change of them a pure addition or a pure removal of non-dot imports.
+	// Funcs is the whole truth only once importEditsKeepLinkSet has found
+	// that none of them changes what a binary of the package links or the
+	// order it initializes in (rts_imports.go).
+	Imports []importEdit
 }
 
 // changedBodies compares each written non-test Go file with its pre-turn
@@ -114,13 +121,17 @@ func changedBodies(workspace string, written []string, pre map[string]PreImage) 
 		if img.Existed {
 			before = []byte(img.Content)
 		}
-		funcs, why := diffGoFile(abs, before, img.Existed, after)
+		funcs, imports, why := diffGoFile(abs, before, img.Existed, after)
 		if why != "" {
 			return fail(p + ": " + why)
 		}
+		key := resolveSymlinks(abs)
 		if len(funcs) > 0 {
-			key := resolveSymlinks(abs)
 			out.Funcs[key] = append(out.Funcs[key], funcs...)
+		}
+		if imports != nil {
+			imports.File = key
+			out.Imports = append(out.Imports, *imports)
 		}
 	}
 	return out
@@ -160,59 +171,61 @@ func resolveSymlinks(p string) string {
 }
 
 // diffGoFile returns the functions whose bodies changed between before and
-// after, or why the difference is not body-only. existed is false for a file
-// the turn created: its functions are additions, which no existing code calls.
-func diffGoFile(name string, before []byte, existed bool, after []byte) ([]declKey, string) {
+// after, the file's import change when it has one that can be body-only, or
+// why the difference is not body-only. existed is false for a file the turn
+// created: its functions are additions, which no existing code calls.
+func diffGoFile(name string, before []byte, existed bool, after []byte) ([]declKey, *importEdit, string) {
 	newDecls, why := inspectGoSource(name, after)
 	if why != "" {
-		return nil, "the new file " + why
+		return nil, nil, "the new file " + why
 	}
 	var oldDecls goDecls
 	if existed {
 		if oldDecls, why = inspectGoSource(name, before); why != "" {
-			return nil, "the pre-turn file " + why
+			return nil, nil, "the pre-turn file " + why
 		}
 	}
 	if newDecls.linkname || oldDecls.linkname {
-		return nil, "go:linkname reaches around the call graph"
+		return nil, nil, "go:linkname reaches around the call graph"
 	}
 	if newDecls.pkg != oldDecls.pkg && existed {
-		return nil, "the package clause changed"
+		return nil, nil, "the package clause changed"
 	}
 	if !slices.Equal(newDecls.directives, oldDecls.directives) {
-		return nil, "a compiler directive or build constraint changed"
+		return nil, nil, "a compiler directive or build constraint changed"
 	}
-	if !slices.Equal(newDecls.imports, oldDecls.imports) {
-		return nil, "the imports changed"
+	imports, why := diffImports(oldDecls.imports, newDecls.imports)
+	if why != "" {
+		return nil, nil, why
 	}
-	if !slices.Equal(newDecls.general, oldDecls.general) {
-		return nil, "a package-level var, const or type declaration changed"
+	if why := addedDeclsOnly(oldDecls, newDecls); why != "" {
+		return nil, nil, why
 	}
 	if !slices.Equal(newDecls.inits, oldDecls.inits) {
-		return nil, "an init function changed"
+		return nil, nil, "an init function changed"
 	}
 	var changed []declKey
 	for key, nf := range newDecls.funcs {
 		of, had := oldDecls.funcs[key]
 		switch {
 		case !had && key.Recv != "":
-			return nil, "method " + key.String() + " was added: a method set is not a function body"
+			return nil, nil, "method " + key.String() + " was added: a method set is not a function body"
 		case !had:
 			// A new plain function: nothing that already exists calls it, and
 			// the bodies that now do are among the changed ones.
 		case of.sig != nf.sig:
-			return nil, "the signature of " + key.String() + " changed"
+			return nil, nil, "the signature of " + key.String() + " changed"
 		case of.body != nf.body:
 			changed = append(changed, key)
 		}
 	}
 	for key := range oldDecls.funcs {
 		if _, kept := newDecls.funcs[key]; !kept {
-			return nil, "function " + key.String() + " was removed"
+			return nil, nil, "function " + key.String() + " was removed"
 		}
 	}
 	slices.SortFunc(changed, func(a, b declKey) int { return strings.Compare(a.String(), b.String()) })
-	return changed, ""
+	return changed, imports, ""
 }
 
 type funcForm struct {
@@ -226,9 +239,11 @@ type goDecls struct {
 	directives []string
 	imports    []string
 	general    []string
-	inits      []string
-	funcs      map[declKey]funcForm
-	linkname   bool
+	// generalNodes are the declarations general renders, in the same order.
+	generalNodes []*ast.GenDecl
+	inits        []string
+	funcs        map[declKey]funcForm
+	linkname     bool
 }
 
 // inspectGoSource reduces a source file to what diffGoFile compares. why is
@@ -301,6 +316,7 @@ func inspectGoSource(name string, src []byte) (goDecls, string) {
 				continue
 			}
 			d.general = append(d.general, render(dd))
+			d.generalNodes = append(d.generalNodes, dd)
 		case *ast.FuncDecl:
 			sigDecl := *dd
 			sigDecl.Body = nil
@@ -346,4 +362,86 @@ func receiverTypeName(fd *ast.FuncDecl) string {
 			return "?"
 		}
 	}
+}
+
+// addedDeclsOnly reports why the package-level var, const and type
+// declarations of a file changed in a way a call graph cannot follow, or ""
+// when the only change is new declarations that run nothing and rename
+// nothing. Every pre-turn declaration must remain, unchanged and in order.
+// A new declaration then cannot be read by any code that existed before --
+// its name did not exist, and a package-level name cannot shadow a file's
+// import -- unless the name shadows a predeclared identifier (len, error,
+// true), which the code around it would silently start to mean; and its
+// initialization runs at package init only what its initializer calls, so an
+// initializer must call nothing (a function literal it holds runs only when a
+// changed body calls it). Live 2026-11-12 the index added to
+// internal/core/kernel_query.go -- one new `var cache sync.Map` -- ran every
+// importer's tests.
+func addedDeclsOnly(old, cur goDecls) string {
+	const changed = "a package-level var, const or type declaration changed"
+	i := 0
+	var added []*ast.GenDecl
+	for j, text := range cur.general {
+		if i < len(old.general) && old.general[i] == text {
+			i++
+			continue
+		}
+		added = append(added, cur.generalNodes[j])
+	}
+	if i != len(old.general) {
+		return changed
+	}
+	for _, decl := range added {
+		if why := inertDecl(decl); why != "" {
+			return changed + ": " + why
+		}
+	}
+	return ""
+}
+
+// inertDecl is why a new package-level declaration is not inert, or "".
+func inertDecl(decl *ast.GenDecl) string {
+	if decl == nil {
+		return "a declaration could not be read"
+	}
+	for _, spec := range decl.Specs {
+		switch sp := spec.(type) {
+		case *ast.ValueSpec:
+			for _, n := range sp.Names {
+				if gotypes.Universe.Lookup(n.Name) != nil {
+					return "the new " + n.Name + " shadows a predeclared identifier"
+				}
+			}
+			for _, v := range sp.Values {
+				if callsAtInit(v) {
+					return "the initializer of " + sp.Names[0].Name + " calls a function at package initialization"
+				}
+			}
+		case *ast.TypeSpec:
+			if gotypes.Universe.Lookup(sp.Name.Name) != nil {
+				return "the new type " + sp.Name.Name + " shadows a predeclared identifier"
+			}
+		default:
+			return "an unexpected declaration"
+		}
+	}
+	return ""
+}
+
+// callsAtInit reports whether evaluating expr makes a call: any call or
+// conversion outside a function literal's body (a conversion reads as a call
+// without type information, and is refused with them).
+func callsAtInit(expr ast.Expr) bool {
+	calls := false
+	ast.Inspect(expr, func(n ast.Node) bool {
+		switch n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.CallExpr:
+			calls = true
+			return false
+		}
+		return !calls
+	})
+	return calls
 }

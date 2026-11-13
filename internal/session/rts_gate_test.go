@@ -299,7 +299,9 @@ func TestSelectImporterRuns_ANewFileOrANonGoFileBesideGoCodeRunsEverything(t *te
 	t.Parallel()
 	t.Run("new file with a var", func(t *testing.T) {
 		t.Parallel()
-		files := rtsFiles(rtsBefore, map[string]string{"a/new.go": "package a\n\nvar Fresh = 1\n"})
+		// A var whose initializer runs code at package initialization; an
+		// inert one (var Fresh = 1) is no change any existing code can see.
+		files := rtsFiles(rtsBefore, map[string]string{"a/new.go": "package a\n\nvar Fresh = Leaf()\n"})
 		ws := writeBaselineModule(t, files)
 		result := mutationResult()
 		result.WrittenPaths = []string{"a/new.go"}
@@ -454,5 +456,62 @@ func TestSelectImporterRuns_AWrittenPackageWhoseTestsDoNotCompileNamesTheLoadErr
 	plan := rtsPlan(t, files, map[string]string{"a/a.go": rtsBefore.aGo()})
 	if !strings.Contains(plan.selection.Fallback, "does not load") || strings.Contains(plan.selection.Fallback, "no SSA function") {
 		t.Fatalf("fallback = %q, want the load error named", plan.selection.Fallback)
+	}
+}
+
+// An import the turn adds that the package already links through another of
+// its imports changes neither what an importer's binary links nor the order it
+// initializes in, so the selection stands on the body change alone: strconv
+// is linked through name.go's fmt, and fmt is imported by name.go itself.
+// Live 2026-11-12 such an import in internal/core ran all 32 importers' tests.
+func TestSelectImporterRuns_AnImportAlreadyLinkedThroughAnotherKeepsTheSelection(t *testing.T) {
+	t.Parallel()
+	nameGo := "package a\n\nimport \"fmt\"\n\ntype Name struct{}\n\nfunc (Name) String() string { return fmt.Sprint(\"n\") }\n"
+	for _, tc := range []struct{ name, imp, leaf string }{
+		{"reached through another import", "strconv", "len(strconv.Itoa(2))"},
+		{"imported by another file of the package", "fmt", "len(fmt.Sprint(2))"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			after := rtsBefore
+			after.leaf = tc.leaf
+			post := strings.Replace(after.aGo(), "package a\n", "package a\n\nimport \""+tc.imp+"\"\n", 1)
+			files := rtsFiles(rtsBefore, map[string]string{"a/a.go": post, "a/name.go": nameGo})
+			plan := rtsPlan(t, files, map[string]string{"a/a.go": rtsBefore.aGo()})
+			requireSelection(t, plan, map[string][]string{"rtsmod/b": {"TestLeaf", "TestSubtest", "TestDispatch"}})
+		})
+	}
+}
+
+// An import of a package nothing linked before brings its initialization into
+// every importer's binary, where a test no call edge connects to the change
+// can see it. The gate runs every importer test, and the importer whose test
+// the new package's init breaks fails the gate.
+func TestVerifyImporters_AnImportThatLinksANewInitRunsEveryImporterAndItsBreakFailsTheGate(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("shells out to the real go toolchain")
+	}
+	after := rtsBefore
+	after.leaf = "2"
+	post := strings.Replace(after.aGo(), "package a\n", "package a\n\nimport _ \"rtsmod/plug\"\n", 1)
+	files := rtsFiles(rtsBefore, map[string]string{
+		"a/a.go":       post,
+		"reg/reg.go":   "package reg\n\nvar Plugins []string\n",
+		"plug/plug.go": "package plug\n\nimport \"rtsmod/reg\"\n\nfunc init() { reg.Plugins = append(reg.Plugins, \"plug\") }\n",
+		"b/reg_test.go": "package b\n\nimport (\n\t\"testing\"\n\n\t\"rtsmod/reg\"\n)\n\n" +
+			"func TestNoPlugins(t *testing.T) {\n\tif len(reg.Plugins) != 0 {\n\t\tt.Fatalf(\"plugins registered: %v\", reg.Plugins)\n\t}\n}\n",
+	})
+	pre := map[string]string{"a/a.go": rtsBefore.aGo()}
+	requireFallback(t, rtsPlan(t, files, pre), "now imports rtsmod/plug")
+
+	ws := writeBaselineModule(t, files)
+	result := mutationResult()
+	result.WrittenPaths = []string{"a/a.go"}
+	result.PreWriteContents = map[string]PreImage{"a/a.go": existed(rtsBefore.aGo())}
+	scope := discoverImporters(context.Background(), ws, result)
+	v := verifyImporters(context.Background(), ws, result, scope)
+	if v.Verdict() != VerifyFailed || !strings.Contains(v.Output, "TestNoPlugins") {
+		t.Fatalf("verdict = %s (%s), want failed naming TestNoPlugins:\n%s", v.Verdict(), v.Reason, v.Output)
 	}
 }

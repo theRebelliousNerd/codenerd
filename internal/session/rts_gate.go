@@ -69,6 +69,9 @@ func selectImporterRuns(ctx context.Context, workspace string, result *Execution
 	if changes.Fallback != "" {
 		return all(changes.Fallback, time.Since(start))
 	}
+	if why := importEditsKeepLinkSet(ctx, workspace, build.GetBuildEnv(nil, workspace), changes.Imports); why != "" {
+		return all(why, time.Since(start))
+	}
 	done := liveVerification(ctx, []string{"select", "importer", "tests", fmt.Sprintf("(%d package(s))", len(scope.runnable))}, "")
 	analysis, why := analyzeImporterTests(ctx, workspace, build.GetBuildEnv(nil, workspace), scope.loadSet, scope.runnable, changes)
 	if why != "" {
