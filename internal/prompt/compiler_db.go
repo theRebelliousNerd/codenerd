@@ -475,18 +475,29 @@ func knowledgeAtomToPromptAtom(atom store.KnowledgeAtom, shardID, source string)
 // rows unseen once the first two had filled it.
 const knowledgeRowsPerSource = 5
 
-// appendKnowledgePromptAtoms converts one source's hits and dedupes them by
-// ephemeral atom ID against everything already appended.
+// appendKnowledgePromptAtoms converts one source's hits and dedupes them
+// against everything already appended: by ephemeral atom ID, and by body. The
+// ID hashes the rendered row, source and concept included, so the same text
+// held under two concepts or by two sources entered the prompt once per copy:
+// live 2026-11-12 a step prompt carried one 851-char paragraph three times
+// (one agent file indexed from three mirror paths) and one 4.9k-char page
+// twice (two experts' knowledge bases). The first copy, from the source
+// searched first, is kept.
 func appendKnowledgePromptAtoms(dst []*PromptAtom, seen map[string]struct{}, atoms []store.KnowledgeAtom, shardID, source, expertKey string) []*PromptAtom {
 	for _, atom := range atoms {
 		pa := knowledgeAtomToPromptAtom(atom, shardID, source)
 		if expertKey != "" {
 			pa.KnowledgeExpert, pa.KnowledgeConcept = expertKey, atom.Concept
 		}
+		body := "body:" + HashContent(strings.TrimSpace(atom.Content))
 		if _, dup := seen[pa.ID]; dup {
 			continue
 		}
+		if _, dup := seen[body]; dup {
+			continue
+		}
 		seen[pa.ID] = struct{}{}
+		seen[body] = struct{}{}
 		dst = append(dst, pa)
 	}
 	return dst
