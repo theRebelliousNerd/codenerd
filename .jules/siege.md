@@ -9,3 +9,6 @@
 ## 2026-11-03 - Perception Transducer Semantic Type Mismatch
 **Learning:** The Perception Transducer translates natural language into Mangle atoms. However, if adversarial input causes it to generate valid Mangle syntax that uses incorrect types (e.g. stringly typed instead of ast.Name), the kernel silently produces empty results instead of an error, breaking the intent pipeline without triggering fallback.
 **Action:** When testing Perception to Kernel integration, assert that malformed types cause proper rejections rather than silent empty result sets.
+## 2026-11-08 - Session-Kernel Contract Implicit Bounds
+**Learning:** The session executor implicitly trusts the kernel's monotonicity. If it injects `ast.String` instead of `ast.Name`, rule evaluations drop out silently because of mismatch, causing permissions to be denied silently. If isolated kernel facts leak across turns, elevated permissions bleed into documentation tasks.
+**Action:** When writing Session-Kernel tests, explicitly use `NewRealKernel()` to assert isolated scopes, use type-strict AST helpers (e.g. `ast.String` vs `ast.Name`), and check that the resulting fact store has exactly the derived facts. Do not assume `err == nil` implies validation success; explicitly check result sets.
