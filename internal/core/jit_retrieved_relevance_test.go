@@ -56,3 +56,50 @@ func TestJITRetrievedContext_ARowJudgedNotToApplyIsRefused(t *testing.T) {
 		t.Errorf("flesh_refused = %v, want the off-topic row named once", refused)
 	}
 }
+
+// The share governs the rows measured against it. A row the compile gave no
+// tokens or rank cannot be placed in the order the share is spent in; it is
+// admitted, not dropped without a name.
+func TestJITRetrievedContext_AnUnmeasuredRowIsAdmittedBesideTheShare(t *testing.T) {
+	t.Parallel()
+	k, err := NewRealKernel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := []string{
+		`compile_budget(1000)`,
+		`retrieved_knowledge_share_config(10, 8000)`, // a share of 100 tokens
+	}
+	for _, id := range []string{"knowledge/fits", "knowledge/over", "knowledge/unmeasured"} {
+		facts = append(facts,
+			`atom("`+id+`")`,
+			`prompt_atom("`+id+`", /knowledge, 20, /false)`,
+			`retrieved_context("`+id+`")`)
+	}
+	facts = append(facts,
+		`retrieved_context_tokens("knowledge/fits", 60)`,
+		`retrieved_context_rank("knowledge/fits", 0)`,
+		`retrieved_context_tokens("knowledge/over", 60)`,
+		`retrieved_context_rank("knowledge/over", 1)`)
+	assertPinFixture(t, k, facts...)
+	got, err := k.Query("selected_result")
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := map[string]bool{}
+	for _, f := range got {
+		if id, ok := f.Args[0].(string); ok {
+			selected[id] = true
+		}
+	}
+	if !selected["knowledge/fits"] || !selected["knowledge/unmeasured"] || selected["knowledge/over"] {
+		t.Errorf("selected %v, want the row that fits and the unmeasured row, not the one past the share", selected)
+	}
+	withheld, err := k.Query("retrieved_withheld")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(withheld) != 1 || withheld[0].Args[0] != "knowledge/over" {
+		t.Errorf("retrieved_withheld = %v, want only the row past the share", withheld)
+	}
+}

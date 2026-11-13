@@ -32,6 +32,8 @@ Decl retrieved_fits_alone(Atom) bound [/string].
 Decl retrieved_knowledge_share(Tokens) bound [/number].
 Decl retrieved_within_share(Atom) bound [/string].
 Decl retrieved_withheld(Atom, Reason) bound [/string, /name].
+Decl retrieved_share_measured() bound [].
+Decl retrieved_row_measured(Atom) bound [/string].
 
 # Conflict resolution
 Decl beats(A, B).
@@ -394,11 +396,33 @@ retrieved_within_share(Atom) :-
 
 retrieved_withheld(Atom, /over_share) :-
     retrieved_order(Atom, _),
+    retrieved_share_measured(),
     !retrieved_within_share(Atom).
 
 candidate_selection(Atom, Percent) :-
     retrieved_within_share(Atom),
     retrieved_priority(Atom, Percent).
+
+# A compile that measured no budget (no compile_budget or share config: a
+# caller that asserts selection facts by hand) has no share to spend: its
+# admissible rows are admitted, never silently refused for want of one.
+retrieved_share_measured() :- retrieved_knowledge_share(_).
+
+candidate_selection(Atom, Percent) :-
+    retrieved_priority(Atom, Percent),
+    !retrieved_share_measured().
+
+# The same holds row by row: a row the compile gave no tokens or no rank cannot
+# be placed in the order the share is spent in, and would otherwise be neither
+# selected nor named as withheld. An absent measurement is never a refusal.
+retrieved_row_measured(Atom) :-
+    retrieved_context_tokens(Atom, _),
+    retrieved_context_rank(Atom, _).
+
+candidate_selection(Atom, Percent) :-
+    retrieved_priority(Atom, Percent),
+    retrieved_share_measured(),
+    !retrieved_row_measured(Atom).
 
 flesh_refused(Atom, /judged_does_not_apply) :-
     retrieved_context(Atom),
