@@ -277,6 +277,13 @@ type Model struct {
 	wrapWidth      int
 	campaignBeside bool
 
+	// historyExtra is how many messages before the default tail the view has
+	// loaded because the user scrolled up past its top (view.go).
+	historyExtra int
+	// readingBack is set while the user has scrolled up from the bottom: new
+	// output is appended without moving the view (followTail).
+	readingBack bool
+
 	// Rendering Performance Cache
 	// Caches rendered markdown for messages to avoid O(N) re-renders.
 	// renderedCacheWidth is the wrapWidth the cached renders were made at:

@@ -126,7 +126,7 @@ func (m Model) showNorthstarPhasePrompt() (tea.Model, tea.Cmd) {
 	})
 	m.textarea.Placeholder = placeholder
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -147,7 +147,7 @@ func (m Model) autoGenerateRequirements() (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		m.isLoading = true
 
@@ -336,7 +336,7 @@ func (m Model) autoGenerateRequirementsHeuristic() (tea.Model, tea.Cmd) {
 		Time: time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }

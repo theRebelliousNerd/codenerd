@@ -267,7 +267,7 @@ func formatEvolutionResult(result *pe.EvolutionResult) string {
 func (m Model) handleCmdTrialAtom(input string, parts []string) (tea.Model, tea.Cmd) {
 	m = m.addMessage(Message{Role: "assistant", Content: m.trialAtomCommand(parts), Time: time.Now()})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }

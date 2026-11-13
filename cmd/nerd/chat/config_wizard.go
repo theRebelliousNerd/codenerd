@@ -293,7 +293,7 @@ Enter a number (1-3) or engine name:`,
 	})
 	m.textarea.Placeholder = "Enter engine (1-3 or name)..."
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -313,7 +313,7 @@ func (m Model) configWizardEngine(input string) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		return m, nil
 	}
 
@@ -397,7 +397,7 @@ Enter a number (1-6) or provider name:`,
 	}
 
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -442,7 +442,7 @@ Would you like to configure individual shard settings?
 	})
 	m.textarea.Placeholder = "Configure shards? (y/n)..."
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -497,7 +497,7 @@ Would you like to configure individual shard settings?
 	})
 	m.textarea.Placeholder = "Configure shards? (y/n)..."
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -520,7 +520,7 @@ func (m Model) configWizardProvider(input string) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		return m, nil
 	}
 
@@ -549,7 +549,7 @@ Enter your API key for %s:
 	})
 	m.textarea.Placeholder = "Enter API key (or Enter to use env var)..."
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -584,7 +584,7 @@ func (m Model) configWizardAPIKey(input string) (tea.Model, tea.Cmd) {
 	})
 	m.textarea.Placeholder = "Enter model (or Enter for default)..."
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }
 
@@ -636,6 +636,6 @@ Would you like to configure individual shard settings?
 	})
 	m.textarea.Placeholder = "Configure shards? (y/n)..."
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	return m, nil
 }

@@ -65,7 +65,7 @@ func (m Model) handleNorthstarWizardInput(input string) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -145,7 +145,7 @@ _Write freely - we'll refine it together._`,
 	}
 
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -163,7 +163,7 @@ func (m Model) handleNorthstarDocIngestion(input string) (tea.Model, tea.Cmd) {
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
+			m.followTail()
 			m.textarea.Reset()
 			m.isLoading = true
 
@@ -228,7 +228,7 @@ _Write freely - we'll refine it together._`,
 	}
 
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -244,7 +244,7 @@ func (m Model) handleNorthstarProblem(input string) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -276,7 +276,7 @@ _Paint a picture of success._`, truncateWithEllipsis(input, 200)),
 	})
 	m.textarea.Placeholder = "Describe your vision..."
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -293,7 +293,7 @@ func (m Model) handleNorthstarVision(input string) (tea.Model, tea.Cmd) {
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
+			m.followTail()
 			m.textarea.Reset()
 			return m, nil
 		}
@@ -324,7 +324,7 @@ Examples:
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
+			m.followTail()
 			m.textarea.Reset()
 			return m, nil
 		}
@@ -357,7 +357,7 @@ _We'll add multiple personas. Type "done" when finished._`, input),
 	}
 
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -374,7 +374,7 @@ func (m Model) handleNorthstarUsers(input string) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -388,7 +388,7 @@ func (m Model) handleNorthstarUsers(input string) (tea.Model, tea.Cmd) {
 				Time:    time.Now(),
 			})
 			m.viewport.SetContent(m.renderHistory())
-			m.viewport.GotoBottom()
+			m.followTail()
 			m.textarea.Reset()
 			return m, nil
 		}
@@ -458,7 +458,7 @@ _Add another persona or type "done" to continue._`, w.Personas[len(w.Personas)-1
 	}
 
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -475,7 +475,7 @@ func (m Model) handleNorthstarCapabilities(input string) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -558,7 +558,7 @@ _Add another or type "done"._`, truncateWithEllipsis(cap.Description, 60), cap.T
 	}
 
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -575,7 +575,7 @@ func (m Model) handleNorthstarRedTeam(input string) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -648,7 +648,7 @@ _Add another risk or type "done"._`, truncateWithEllipsis(risk.Description, 50),
 	}
 
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -665,7 +665,7 @@ func (m Model) handleNorthstarRequirements(input string) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -746,7 +746,7 @@ _Add another or type "done"._`, req.ID, truncateWithEllipsis(req.Description, 50
 	}
 
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -771,7 +771,7 @@ func (m Model) handleNorthstarConstraints(input string) (tea.Model, tea.Cmd) {
 	})
 	m.textarea.Placeholder = "Add constraints or 'done'..."
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -865,7 +865,7 @@ func (m Model) showNorthstarSummary() (tea.Model, tea.Cmd) {
 	})
 	m.textarea.Placeholder = "save / edit / campaign..."
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -891,7 +891,7 @@ func (m Model) handleNorthstarSummary(input string) (tea.Model, tea.Cmd) {
 		})
 		m.textarea.Placeholder = "yes / no..."
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	case "edit", "back":
@@ -903,7 +903,7 @@ func (m Model) handleNorthstarSummary(input string) (tea.Model, tea.Cmd) {
 		})
 		m.textarea.Placeholder = "Edit problem or 'skip'..."
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	default:
@@ -913,7 +913,7 @@ func (m Model) handleNorthstarSummary(input string) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}

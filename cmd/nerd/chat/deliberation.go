@@ -97,7 +97,7 @@ func (m Model) handleCmdDeliberate(input string, parts []string) (tea.Model, tea
 	if len(parts) < 2 {
 		m = m.pushAssistantMsg("Usage: /deliberate <sub-problem> (or /innovate). Returns a converged design brief.")
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		return m, nil
 	}
 	task := strings.TrimSpace(strings.TrimPrefix(input, parts[0]))

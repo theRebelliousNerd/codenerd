@@ -25,14 +25,14 @@ func (m Model) handleCmdFix(input string, parts []string) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		m.isLoading = true
 		// Use specialist-aware spawning for /fix
 		return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/fix", "coder", task, slashTarget{Target: target, Constraint: constraint, Request: request}))
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -55,14 +55,14 @@ func (m Model) handleCmdRefactor(input string, parts []string) (tea.Model, tea.C
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		m.isLoading = true
 		// Use specialist-aware spawning for /refactor
 		return m, tea.Batch(m.spinner.Tick, m.spawnShardWithSpecialists("/refactor", "coder", task, slashTarget{Target: target, Constraint: constraint, Request: request}))
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -76,7 +76,7 @@ func (m Model) handleCmdWhy(input string, parts []string) (tea.Model, tea.Cmd) {
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -103,7 +103,7 @@ func (m Model) handleCmdExplainOff(input string, parts []string) (tea.Model, tea
 		})
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -133,7 +133,7 @@ func (m Model) handleCmdLogic(input string, parts []string) (tea.Model, tea.Cmd)
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -162,7 +162,7 @@ func (m Model) handleCmdGlassbox(input string, parts []string) (tea.Model, tea.C
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	// Start listening for events if enabled
 	if m.glassBoxEnabled {
@@ -187,13 +187,13 @@ func (m Model) handleCmdShadow(input string, parts []string) (tea.Model, tea.Cmd
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.runShadowSimulation(action))
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -214,13 +214,13 @@ func (m Model) handleCmdWhatif(input string, parts []string) (tea.Model, tea.Cmd
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		m.isLoading = true
 		return m, tea.Batch(m.spinner.Tick, m.runWhatIfQuery(change))
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -233,7 +233,7 @@ func (m Model) handleCmdApprove(input string, parts []string) (tea.Model, tea.Cm
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -252,7 +252,7 @@ func (m Model) handleCmdReviewAccuracy(input string, parts []string) (tea.Model,
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -267,7 +267,7 @@ func (m Model) handleCmdJit(input string, parts []string) (tea.Model, tea.Cmd) {
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -282,7 +282,7 @@ func (m Model) handleCmdCleanupTools(input string, parts []string) (tea.Model, t
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -297,7 +297,7 @@ func (m Model) handleCmdEvolve(input string, parts []string) (tea.Model, tea.Cmd
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -307,7 +307,7 @@ func (m Model) handleCmdEvolve(input string, parts []string) (tea.Model, tea.Cmd
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.isLoading = true
 	m.textarea.Reset()
 	return m, tea.Batch(m.spinner.Tick, m.runEvolutionCycle())
@@ -322,7 +322,7 @@ func (m Model) handleCmdEvolutionStats(input string, parts []string) (tea.Model,
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -336,7 +336,7 @@ func (m Model) handleCmdEvolvedAtoms(input string, parts []string) (tea.Model, t
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -350,7 +350,7 @@ func (m Model) handleCmdStrategies(input string, parts []string) (tea.Model, tea
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -392,7 +392,7 @@ func (m Model) handleCmdRejectAtom(input string, parts []string) (tea.Model, tea
 		}
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }

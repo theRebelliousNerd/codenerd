@@ -56,7 +56,7 @@ func (m Model) setYolo(on bool) Model {
 func (m Model) pushYoloNote(content string) Model {
 	m = m.addMessage(Message{Role: "assistant", Content: content, Time: time.Now()})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m
 }

@@ -59,7 +59,7 @@ func (m Model) handleQueryCommand(input string, parts []string) (tea.Model, tea.
 		}
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 
@@ -80,7 +80,7 @@ func (m Model) handleExplainCommand(input string, parts []string) (tea.Model, te
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -92,7 +92,7 @@ func (m Model) handleExplainCommand(input string, parts []string) (tea.Model, te
 			Time:    time.Now(),
 		})
 		m.viewport.SetContent(m.renderHistory())
-		m.viewport.GotoBottom()
+		m.followTail()
 		m.textarea.Reset()
 		return m, nil
 	}
@@ -110,7 +110,7 @@ func (m Model) handleExplainCommand(input string, parts []string) (tea.Model, te
 	}
 	m = m.addMessage(msg)
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 
@@ -160,7 +160,7 @@ func (m Model) handleTransparencyCommand(input string, parts []string) (tea.Mode
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 
@@ -208,7 +208,7 @@ func (m Model) handleRejectFindingCommand(input string, parts []string) (tea.Mod
 		}
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 
@@ -274,7 +274,7 @@ func (m Model) handleAcceptFindingCommand(input string, parts []string) (tea.Mod
 		}
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 
@@ -317,7 +317,7 @@ func (m Model) handlePromoteAtomCommand(input string, parts []string) (tea.Model
 		}
 	}
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 
@@ -343,7 +343,7 @@ func (m Model) handleCmdContinue(input string, parts []string) (tea.Model, tea.C
 		Time:    time.Now(),
 	})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
@@ -414,7 +414,7 @@ func (m Model) handleCmdBrowser(input string, parts []string) (tea.Model, tea.Cm
 	}
 	m = m.addMessage(Message{Role: "assistant", Content: content, Time: time.Now()})
 	m.viewport.SetContent(m.renderHistory())
-	m.viewport.GotoBottom()
+	m.followTail()
 	m.textarea.Reset()
 	return m, nil
 }
