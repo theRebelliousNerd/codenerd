@@ -311,7 +311,9 @@ func (sm *ShadowMode) projectEffects(action SimulatedAction) []SimulatedEffect {
 		// queries below this one only widens the simulated blast radius, so a
 		// failure degrades rather than blocks — but it is logged, because a
 		// silently empty dependency graph makes every simulation look local.
-		deps, depErr := sm.shadowKernel.Query("dependency_link")
+		// Only the edges that end at the written file, from the argument
+		// index: the relation has a row per import edge of the workspace.
+		deps, depErr := sm.shadowKernel.Query(BoundQuery("dependency_link", 3, map[int]string{1: action.Target}))
 		if depErr != nil {
 			logging.Get(logging.CategoryKernel).Warn("shadow dependency_link query failed, impact effects omitted: %v", depErr)
 		}

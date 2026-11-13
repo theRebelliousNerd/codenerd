@@ -109,23 +109,32 @@ func (h *HolographicProvider) applyImpactPriorities(ctx context.Context, hc *Hol
 // (build-tag twins, one init per file) has no single address: it keeps its
 // name and path and says how many declarations share them.
 func (h *HolographicProvider) attachDeclaredSpans(callers []PrioritizedCaller) []PrioritizedCaller {
-	facts, err := h.kernel.Query("code_defines")
-	if err != nil || len(facts) == 0 {
-		return callers
-	}
 	type site struct{ file, symbol string }
 	type span struct{ start, end int }
 	spans := make(map[site][]span)
-	for _, f := range facts {
-		if len(f.Args) < 5 {
+	// One indexed lookup per caller's file, not a copy of every declaration
+	// of the workspace to find a handful.
+	asked := make(map[string]struct{})
+	for _, c := range callers {
+		if _, done := asked[c.File]; done || c.File == "" {
 			continue
 		}
-		k := site{h.stringArg(f.Args[0]), h.stringArg(f.Args[1])}
-		sp := span{h.intArg(f.Args[3], 0), h.intArg(f.Args[4], 0)}
-		if sp.start <= 0 || slices.Contains(spans[k], sp) {
-			continue
+		asked[c.File] = struct{}{}
+		facts, err := h.kernel.Query(core.BoundQuery("code_defines", 5, map[int]string{0: c.File}))
+		if err != nil {
+			return callers
 		}
-		spans[k] = append(spans[k], sp)
+		for _, f := range facts {
+			if len(f.Args) < 5 {
+				continue
+			}
+			k := site{h.stringArg(f.Args[0]), h.stringArg(f.Args[1])}
+			sp := span{h.intArg(f.Args[3], 0), h.intArg(f.Args[4], 0)}
+			if sp.start <= 0 || slices.Contains(spans[k], sp) {
+				continue
+			}
+			spans[k] = append(spans[k], sp)
+		}
 	}
 	for i := range callers {
 		found := spans[site{callers[i].File, callers[i].Name}]

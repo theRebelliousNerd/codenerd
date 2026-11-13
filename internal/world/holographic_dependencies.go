@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 
+	"codenerd/internal/core"
 	"codenerd/internal/logging"
 	"codenerd/internal/types"
 )
@@ -82,7 +83,10 @@ func (h *HolographicProvider) applyDirectImporters(hc *HolographicContext, fileP
 	}
 	target := "pkg:" + pkgPath
 
-	facts, err := h.kernel.Query("dependency_link")
+	// Only the rows that import this package, from the argument index: the
+	// relation has a row per import edge of the workspace (251k here) and this
+	// runs for every file the model opens.
+	facts, err := h.kernel.Query(core.BoundQuery("dependency_link", 3, map[int]string{1: target}))
 	if err != nil {
 		logging.WorldDebug("applyDirectImporters: dependency_link query failed: %v", err)
 		return

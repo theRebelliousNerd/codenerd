@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1361,101 +1362,111 @@ func (h *HolographicProvider) queryRelationshipsWithContext(ctx context.Context,
 		return
 	}
 
-	// Query code_defines for symbols in this file
-	facts, err := h.kernel.Query("code_defines")
-	if err != nil {
-		return
-	}
-
 	root := h.workDir
 	if scope, _ := ctx.Value(holographicScopeKey{}).(*holographicReadScope); scope != nil {
 		root = scope.root
 	}
-	normalPath := strings.ToLower(types.CanonicalPath(root, filePath))
+	// This file's symbols, from the argument index. The relation has a row per
+	// declaration of the workspace and this runs for every file the model
+	// opens; it used to be copied whole and each row's path canonicalized.
+	// The scanner records the canonical path; a producer that recorded the
+	// path as given, or slash-converted, is asked for too, and every row is
+	// still compared in canonical form.
+	canonical := types.CanonicalPath(root, filePath)
+	normalPath := strings.ToLower(canonical)
 	var fileSymbols []string
-
-	for _, fact := range facts {
-		select {
-		case <-ctx.Done():
+	symbolSeen := make(map[string]struct{})
+	for _, spelling := range distinctStrings(canonical, filePath, filepath.ToSlash(filePath)) {
+		if err := ctx.Err(); err != nil {
 			return
-		default:
 		}
-
-		if len(fact.Args) < 5 {
-			continue
+		facts, err := h.kernel.Query(core.BoundQuery("code_defines", 5, map[int]string{0: spelling}))
+		if err != nil {
+			return
 		}
-		factFile, _ := fact.Args[0].(string)
-		normalFactFile := strings.ToLower(types.CanonicalPath(root, factFile))
-		if normalFactFile != "" && normalFactFile == normalPath {
-			if sym, ok := fact.Args[1].(string); ok {
-				fileSymbols = append(fileSymbols, sym)
+		for _, fact := range facts {
+			if len(fact.Args) < 5 {
+				continue
 			}
+			factFile, _ := fact.Args[0].(string)
+			normalFactFile := strings.ToLower(types.CanonicalPath(root, factFile))
+			if normalFactFile == "" || normalFactFile != normalPath {
+				continue
+			}
+			sym, ok := fact.Args[1].(string)
+			if !ok {
+				continue
+			}
+			if _, dup := symbolSeen[sym]; dup {
+				continue
+			}
+			symbolSeen[sym] = struct{}{}
+			fileSymbols = append(fileSymbols, sym)
 		}
 	}
 
-	if err := ctx.Err(); err != nil {
-		return
-	}
-
-	// Query code_calls to build call graph for these symbols
-	callFacts, err := h.kernel.Query("code_calls")
-	if err != nil {
-		return
-	}
-
-	// Storage cap only. The loop does not break at it: edges past the cap are
-	// counted into CallGraphEdges and their callers into CallerCount, which is
-	// what PromptSection's remainder is computed from. fn: rows are duplicates
-	// of a bare row (see below) and are not part of either count.
-	edgeCount := 0
+	// The call edges that start or end at one of those symbols, again from
+	// the index, a pair of lookups per symbol. This was a walk of every call
+	// edge of the workspace (136k here) testing each against every symbol of
+	// the file with strings.Contains: file-count times world-size work, and
+	// wrong besides -- core.RealKernel.Query "contained" in
+	// core.RealKernel.QueryContext counted the second function's edges as the
+	// first's. An edge belongs to this file when its caller or its callee IS
+	// one of the file's symbols.
+	//
+	// Storage cap only. Edges past the cap are still counted into
+	// CallGraphEdges and their callers into CallerCount, which is what
+	// PromptSection's remainder is computed from. fn: rows are duplicates of a
+	// bare row and are not part of either count; a bare cartographer ID never
+	// starts with "fn:", so no lookup returns one.
+	type edge struct{ caller, callee string }
+	edgeSeen := make(map[edge]struct{})
 	callerSeen := make(map[string]struct{})
-
-	for _, fact := range callFacts {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		if len(fact.Args) < 2 {
-			continue
-		}
-		caller, _ := fact.Args[0].(string)
-		callee, _ := fact.Args[1].(string)
-
-		// Dual CodeDOM-ref rows (fn:pkg.Name, emitted for the test-impact
-		// joins) carry the same edge as a bare row this walk already
-		// matches: counting them would double CallGraphEdges and make the
-		// remainder a lie in the other direction. A bare cartographer ID
-		// never starts with "fn:".
-		if strings.HasPrefix(caller, "fn:") || strings.HasPrefix(callee, "fn:") {
-			continue
-		}
-
-		matched := false
-		for _, sym := range fileSymbols {
-			if strings.Contains(caller, sym) || strings.Contains(callee, sym) {
-				matched = true
-				break
+	for _, sym := range fileSymbols {
+		for pos := range 2 {
+			if err := ctx.Err(); err != nil {
+				return
+			}
+			callFacts, err := h.kernel.Query(core.BoundQuery("code_calls", 2, map[int]string{pos: sym}))
+			if err != nil {
+				return
+			}
+			for _, fact := range callFacts {
+				if len(fact.Args) < 2 {
+					continue
+				}
+				caller, _ := fact.Args[0].(string)
+				callee, _ := fact.Args[1].(string)
+				if strings.HasPrefix(caller, "fn:") || strings.HasPrefix(callee, "fn:") {
+					continue
+				}
+				e := edge{caller, callee}
+				if _, dup := edgeSeen[e]; dup {
+					continue
+				}
+				edgeSeen[e] = struct{}{}
+				hc.CallGraphEdges++
+				if _, ok := callerSeen[caller]; !ok {
+					callerSeen[caller] = struct{}{}
+					hc.CallerCount++
+				}
+				if len(hc.CallGraph) < maxCallGraphEdges {
+					hc.CallGraph = append(hc.CallGraph, CallEdge{Caller: caller, Callee: callee})
+				}
 			}
 		}
-		if !matched {
-			continue
-		}
+	}
+}
 
-		hc.CallGraphEdges++
-		if _, ok := callerSeen[caller]; !ok {
-			callerSeen[caller] = struct{}{}
-			hc.CallerCount++
-		}
-		if edgeCount < maxCallGraphEdges {
-			hc.CallGraph = append(hc.CallGraph, CallEdge{
-				Caller: caller,
-				Callee: callee,
-			})
-			edgeCount++
+// distinctStrings returns its non-empty arguments, each once, in order.
+func distinctStrings(values ...string) []string {
+	var out []string
+	for _, v := range values {
+		if v != "" && !slices.Contains(out, v) {
+			out = append(out, v)
 		}
 	}
+	return out
 }
 
 // checkTestCoverage checks if a corresponding test file exists.

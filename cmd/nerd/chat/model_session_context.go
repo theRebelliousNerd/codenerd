@@ -3,6 +3,8 @@ package chat
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -400,36 +402,35 @@ func (m *Model) queryDiagnostics() []string {
 	return diagnostics
 }
 
-// querySymbolContext gets relevant symbols from symbol_graph.
-// Caps the scan so session-context hydration cannot pull 25k+ facts into Go.
+// querySymbolContext gets public symbols from symbol_graph: the first 15 the
+// store yields, as before, but asked for by visibility through the argument
+// index. The old "cap" stopped the loop at 3000 rows after kernel.Query had
+// already copied every row of the relation (49k on this repository) into Go,
+// on every turn.
 func (m *Model) querySymbolContext() []string {
 	if m.kernel == nil {
 		return nil
 	}
-	results, err := m.kernel.Query("symbol_graph")
-	if err != nil {
-		return nil
-	}
+	const want = 15
 	var symbols []string
-	const maxScan = 3000
-	for i, fact := range results {
-		if i >= maxScan {
-			break
-		}
+	for _, visibility := range []string{"/public", "/exported"} {
 		// symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature)
-		if len(fact.Args) >= 5 {
+		results, err := m.kernel.Query("symbol_graph(ID, Type, " + visibility + ", At, Sig)")
+		if err != nil {
+			return symbols
+		}
+		for _, fact := range results {
+			if len(fact.Args) < 5 {
+				continue
+			}
 			symbolID, _ := fact.Args[0].(string)
 			symType, _ := fact.Args[1].(string)
-			visibility, _ := fact.Args[2].(string)
 			signature, _ := fact.Args[4].(string)
-			if visibility == "/public" || visibility == "/exported" {
-				symbols = append(symbols,
-					fmt.Sprintf("%s %s: %s", symType, symbolID, strings.Join(strings.Fields(signature), " ")))
+			symbols = append(symbols,
+				fmt.Sprintf("%s %s: %s", symType, symbolID, strings.Join(strings.Fields(signature), " ")))
+			if len(symbols) >= want {
+				return symbols
 			}
-		}
-		// Stop early once we have enough public symbols
-		if len(symbols) >= 15 {
-			break
 		}
 	}
 	return symbols
@@ -440,11 +441,11 @@ func (m *Model) queryDependencyContext(files []string) []string {
 	if m.kernel == nil {
 		return nil
 	}
-	results, err := m.kernel.Query("dependency_link")
-	if err != nil {
-		return nil
-	}
-	// Both sides are canonicalized before they are compared.
+	// Asked per active file through the argument index, in both directions.
+	// The relation has a row per import edge of the workspace (251k here) and
+	// this ran on every turn: one copy of it cost 135 ms and 80 MB.
+	//
+	// Both sides are still canonicalized before they are compared.
 	//
 	// When this join was wired the two fact families did NOT agree on path
 	// form: dependency_link came from the world scan, canonical and
@@ -469,24 +470,50 @@ func (m *Model) queryDependencyContext(files []string) []string {
 	// producer's guarantee can be right and this still cannot tell, because
 	// what arrives is a string.
 	var deps []string
-	fileSet := make(map[string]bool)
+	seen := make(map[string]bool)
 	for _, f := range files {
-		fileSet[types.CanonicalPath(m.workspace, f)] = true
-	}
-	for _, fact := range results {
-		// dependency_link(CallerID, CalleeID, ImportPath)
-		if len(fact.Args) >= 3 {
-			caller, _ := fact.Args[0].(string)
-			callee, _ := fact.Args[1].(string)
-			importPath, _ := fact.Args[2].(string)
-			caller = types.CanonicalPath(m.workspace, caller)
-			callee = types.CanonicalPath(m.workspace, callee)
-			// Check if caller or callee is in our active files
-			if fileSet[caller] {
-				deps = append(deps, fmt.Sprintf("%s imports %s", caller, importPath))
+		file := types.CanonicalPath(m.workspace, f)
+		if file == "" || seen[file] {
+			continue
+		}
+		seen[file] = true
+		// dependency_link(CallerID, CalleeID, ImportPath). The scanner records
+		// the canonical path; a row recorded with the path as given or
+		// absolute is asked for too, and every row is compared canonically.
+		spellings := []string{file}
+		for _, alt := range []string{f, filepath.ToSlash(f), filepath.Join(m.workspace, filepath.FromSlash(file)), filepath.ToSlash(filepath.Join(m.workspace, filepath.FromSlash(file)))} {
+			if alt != "" && !slices.Contains(spellings, alt) {
+				spellings = append(spellings, alt)
 			}
-			if fileSet[callee] {
-				deps = append(deps, fmt.Sprintf("%s imported by %s", callee, caller))
+		}
+		emitted := make(map[string]bool)
+		for pos := range 2 {
+			for _, spelling := range spellings {
+				results, err := m.kernel.Query(core.BoundQuery("dependency_link", 3, map[int]string{pos: spelling}))
+				if err != nil {
+					return deps
+				}
+				for _, fact := range results {
+					if len(fact.Args) < 3 {
+						continue
+					}
+					caller, _ := fact.Args[0].(string)
+					callee, _ := fact.Args[1].(string)
+					importPath, _ := fact.Args[2].(string)
+					caller = types.CanonicalPath(m.workspace, caller)
+					callee = types.CanonicalPath(m.workspace, callee)
+					line := ""
+					if pos == 0 && caller == file {
+						line = fmt.Sprintf("%s imports %s", caller, importPath)
+					}
+					if pos == 1 && callee == file {
+						line = fmt.Sprintf("%s imported by %s", callee, caller)
+					}
+					if line != "" && !emitted[line] {
+						emitted[line] = true
+						deps = append(deps, line)
+					}
+				}
 			}
 		}
 	}

@@ -3,6 +3,8 @@ package world
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"codenerd/internal/core"
@@ -13,7 +15,37 @@ import (
 // booting a kernel.
 type stubQuerier struct{ facts map[string][]core.Fact }
 
-func (s *stubQuerier) Query(pred string) ([]core.Fact, error) { return s.facts[pred], nil }
+// Query answers a bare predicate with all its rows and a pattern
+// ("pred(V0, \"value\", V2)", core.BoundQuery's spelling) with the rows whose
+// quoted positions hold those strings, as the kernel's argument index does.
+func (s *stubQuerier) Query(pred string) ([]core.Fact, error) {
+	name, rest, pattern := strings.Cut(pred, "(")
+	if !pattern {
+		return s.facts[pred], nil
+	}
+	var out []core.Fact
+	terms := strings.Split(strings.TrimSuffix(rest, ")"), ", ")
+rows:
+	for _, f := range s.facts[name] {
+		if len(f.Args) != len(terms) {
+			continue
+		}
+		for i, term := range terms {
+			if !strings.HasPrefix(term, `"`) {
+				continue
+			}
+			want, err := strconv.Unquote(term)
+			if err != nil {
+				return nil, err
+			}
+			if got, _ := f.Args[i].(string); got != want {
+				continue rows
+			}
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
 
 // TestHolographicProvider_WhenGivenStubQuerier_ShouldUseIt proves the provider
 // depends only on Query, not on *core.RealKernel.

@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"codeberg.org/TauCeti/mangle-go/ast"
@@ -190,7 +191,14 @@ func (k *RealKernel) findPremises(ctx context.Context, fact mangle.Fact, ruleNam
 		// impacted(X) :- dependency_link(X, Y, _), modified(Y).
 		// We look for dependency_link facts where Arg0 matches our Arg0
 		if len(fact.Args) > 0 {
-			deps, _ := k.Query("dependency_link")
+			// The rows that start at this fact's first argument, from the
+			// argument index when it is a string (the scan copied every import
+			// edge of the workspace for each fact explained).
+			query := "dependency_link"
+			if s, ok := fact.Args[0].(string); ok && !strings.HasPrefix(s, "/") {
+				query = BoundQuery("dependency_link", 3, map[int]string{0: s})
+			}
+			deps, _ := k.Query(query)
 			for _, d := range deps {
 				// Filter to facts where first arg matches
 				if len(d.Args) > 0 && types.ExtractString(d.Args[0]) == types.ExtractString(fact.Args[0]) {
