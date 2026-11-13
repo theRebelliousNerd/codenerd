@@ -311,14 +311,23 @@ func (sm *ShadowMode) projectEffects(action SimulatedAction) []SimulatedEffect {
 		// queries below this one only widens the simulated blast radius, so a
 		// failure degrades rather than blocks — but it is logged, because a
 		// silently empty dependency graph makes every simulation look local.
-		// Only the edges that end at the written file, from the argument
-		// index: the relation has a row per import edge of the workspace.
-		deps, depErr := sm.shadowKernel.QueryBound("dependency_link", 3, map[int]any{1: action.Target})
+		// The files that import the unit the written file belongs to
+		// (file_unit, then import_unit; schemas_world.mg), both by index.
+		units, depErr := sm.shadowKernel.QueryBound("file_unit", 2, map[int]any{0: action.Target})
+		var deps []Fact
+		for _, u := range units {
+			if depErr != nil || len(u.Args) < 2 {
+				break
+			}
+			var importers []Fact
+			importers, depErr = sm.shadowKernel.QueryBound("import_unit", 2, map[int]any{1: types.ExtractString(u.Args[1])})
+			deps = append(deps, importers...)
+		}
 		if depErr != nil {
-			logging.Get(logging.CategoryKernel).Warn("shadow dependency_link query failed, impact effects omitted: %v", depErr)
+			logging.Get(logging.CategoryKernel).Warn("shadow import-graph query failed, impact effects omitted: %v", depErr)
 		}
 		for _, dep := range deps {
-			if len(dep.Args) >= 2 && types.ExtractString(dep.Args[1]) == action.Target {
+			if len(dep.Args) >= 2 && types.ExtractString(dep.Args[0]) != action.Target {
 				effects = append(effects, SimulatedEffect{
 					ActionID:   action.ID,
 					Predicate:  "impacted",

@@ -24,7 +24,8 @@ func TestIntentWiring(t *testing.T) {
 # drop them — which means a standalone harness like this one has to supply what
 # the corpus supplies in production.
 Decl file_contains(FilePath, Pattern).
-Decl file_imports(Importer, Imported).
+Decl import_unit(File, Unit).
+Decl file_unit(File, Unit).
 Decl file_dir(Path, Dir).
 Decl turn_verb(Turn, Verb).
 Decl turn_declared_check(Turn).
@@ -216,7 +217,8 @@ func TestGroundedWebSearchRouting(t *testing.T) {
 	mockSchema := `
 # Declarations the routing file no longer carries; see the note above.
 Decl file_contains(FilePath, Pattern).
-Decl file_imports(Importer, Imported).
+Decl import_unit(File, Unit).
+Decl file_unit(File, Unit).
 Decl file_dir(Path, Dir).
 Decl turn_verb(Turn, Verb).
 Decl turn_declared_check(Turn).

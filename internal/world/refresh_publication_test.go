@@ -106,7 +106,7 @@ func TestRefresh_PublicationPrecedesNextObservation(t *testing.T) {
 		}
 		found := false
 		for _, f := range facts {
-			if f.Args[1] == "/depends_on" && f.Args[2] == "b/b.go" {
+			if f.Args[1] == "/imports" && f.Args[2] == "example.com/ws/b" {
 				found = true
 			}
 		}
@@ -144,14 +144,14 @@ func TestRefresh_PublicationPrecedesNextObservation(t *testing.T) {
 	}
 	cachedEdge := false
 	for _, f := range cached {
-		if f.Predicate == "dependency_link" && f.Args[1] == "b/b.go" {
+		if f.Predicate == "import_unit" && f.Args[1] == "example.com/ws/b" {
 			cachedEdge = true
 		}
 	}
 	if !cachedEdge {
 		t.Fatal("precondition: A did not cache its resolved local import")
 	}
-	if facts, err := kernel.Query(`dependency_link("a.go", "b/b.go", I)`); err != nil || len(facts) != 1 {
+	if facts, err := kernel.Query(`import_unit("a.go", "example.com/ws/b")`); err != nil || len(facts) != 1 {
 		t.Fatalf("A's applied dependency = %v, err=%v", facts, err)
 	}
 	hasDependency(false)

@@ -30,7 +30,10 @@ var pathArgIndexes = map[string][]int{
 	// the full/incremental parity assertion below covers them like the rest.
 	"file_package": {0},
 	"is_test_file": {0},
-	"file_imports": {0, 1},
+	// The unit slot is an import path for Go and the file itself elsewhere;
+	// only the owning file is checked as a path.
+	"import_unit": {0},
+	"file_unit":   {0},
 }
 
 // factPathArgs returns the path identities carried by a fact.

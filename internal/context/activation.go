@@ -31,6 +31,11 @@ import (
 type ActivationEngine struct {
 	mu sync.RWMutex
 
+	// focusSpread is what the symbol graph contributes to a fact under one
+	// focused path. It depends on the path and the graph, not on the fact, so
+	// it is computed once per path per graph build.
+	focusSpread map[string]float64
+
 	config CompressorConfig
 
 	// State tracking
@@ -366,9 +371,27 @@ func (ae *ActivationEngine) buildSymbolGraphLocked(facts []core.Fact) {
 	ae.symbolGraph = make(map[string][]string)
 	ae.dependencies = make(map[string][]string)
 	ae.reverseDependencies = make(map[string][]string)
+	ae.focusSpread = nil
 
 	for _, f := range facts {
 		switch f.Predicate {
+		case "import_unit", "file_unit":
+			// The import graph in factors (schemas_world.mg): a file imports
+			// a unit, and a unit reaches its member files. The unit is a node
+			// between them, so an importer is two edges from what it imports.
+			if len(f.Args) >= 2 {
+				file, _ := f.Args[0].(string)
+				unit, _ := f.Args[1].(string)
+				if file == "" || unit == "" || file == unit {
+					continue
+				}
+				from, to := file, unit
+				if f.Predicate == "file_unit" {
+					from, to = unit, file
+				}
+				ae.symbolGraph[from] = append(ae.symbolGraph[from], to)
+				ae.reverseDependencies[to] = append(ae.reverseDependencies[to], from)
+			}
 		case "dependency_link":
 			// dependency_link(CallerID, CalleeID, ImportPath)
 			if len(f.Args) >= 2 {
@@ -794,6 +817,7 @@ func (ae *ActivationEngine) ClearState() {
 	ae.explicitDeps = make(map[string][]string)
 	ae.explicitRevDeps = make(map[string][]string)
 	ae.symbolGraph = make(map[string][]string)
+	ae.focusSpread = nil
 	ae.sessionFacts = make(map[string]bool)
 	ae.campaignContext = nil
 	ae.issueContext = nil

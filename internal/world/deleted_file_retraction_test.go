@@ -77,7 +77,7 @@ func TestIncrementalScan_WhenAFileIsDeleted_ShouldRetractAllOfItsFacts(t *testin
 			if isPairPredicate(f.Predicate) {
 				// A fact naming two files belongs to its owner (argument 0,
 				// the file whose parse produced it), not to both: attributing
-				// it to either side counts file_imports(keep.go, alpha.go) as
+				// it to either side counts import_unit(keep.go, alpha.go) as
 				// keep.go's retraction when alpha.go is deleted, although the
 				// untouched file retracts nothing. This matches groupFactsByPath,
 				// which files such a fact under its first file argument.
@@ -156,13 +156,13 @@ func TestIncrementalScan_WhenAFileIsDeleted_ShouldRetractAllOfItsFacts(t *testin
 }
 
 // isPairPredicate reports whether a predicate names two files, with the
-// producing (owning) file in argument 0: file_imports pairs, resolved
-// dependency_link edges (raw tokens name one file, so owner attribution
-// agrees with any-argument matching for them), and test_file_for, which
+// producing (owning) file in argument 0: import_unit and file_unit rows
+// (the unit of a Python or JS file is the file itself), dependency_link
+// rows, and test_file_for, which
 // groupFactsByPath files under the test file.
 func isPairPredicate(pred string) bool {
 	switch pred {
-	case "file_imports", "dependency_link", "test_file_for":
+	case "import_unit", "file_unit", "dependency_link", "test_file_for":
 		return true
 	}
 	return false

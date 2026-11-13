@@ -51,11 +51,13 @@ Decl reachability_query(From) bound [/string].
 
 symbol_reachable(From, To) :-
     reachability_query(From),
-    dependency_link(From, To, _).
+    import_unit(From, Unit),
+    file_unit(To, Unit).
 
 symbol_reachable(From, To) :-
     symbol_reachable(From, Mid),
-    dependency_link(Mid, To, _).
+    import_unit(Mid, Unit),
+    file_unit(To, Unit).
 
 # Bounded variant, same seeding. The depth cap alone was never the protection —
 # depth 15 over a dense graph is exactly what exhausted the budget.
@@ -64,11 +66,13 @@ Decl path_of_length(From, To, Len).
 
 path_of_length(From, To, 1) :-
     reachability_query(From),
-    dependency_link(From, To, _).
+    import_unit(From, Unit),
+    file_unit(To, Unit).
 
 path_of_length(From, To, Len) :-
     path_of_length(From, Mid, SubLen),
-    dependency_link(Mid, To, _),
+    import_unit(Mid, Unit),
+    file_unit(To, Unit),
     Len = fn:plus(SubLen, 1),
     Len <= 15.
 

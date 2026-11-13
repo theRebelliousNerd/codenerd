@@ -29,7 +29,7 @@ func TestTrace_CoverageHeuristics(t *testing.T) {
 	k.Assert(Fact{Predicate: "rule_metadata", Args: []any{"my_clarification", "focus_threshold"}})
 	k.Assert(Fact{Predicate: "rule_metadata", Args: []any{"my_action", "strategy_selector"}})
 
-	k.Assert(Fact{Predicate: "dependency_link", Args: []any{"caller1", "callee1", "import1"}})
+	k.Assert(Fact{Predicate: "import_unit", Args: []any{"caller1", "unit1"}})
 	k.Assert(Fact{Predicate: "safe_action", Args: []any{"action1"}})
 	k.Assert(Fact{Predicate: "focus_resolution", Args: []any{"ref1", "path1", "symbol1", int64(95)}})
 	k.Assert(Fact{Predicate: "user_intent", Args: []any{"id1", "cat1", "verb1", "target1", "constraint1"}})
@@ -60,8 +60,8 @@ func TestTrace_CoverageHeuristics(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TraceQuery failed: %v", err)
 	}
-	if len(trace.RootNodes) != 1 || len(trace.RootNodes[0].Children) != 1 || trace.RootNodes[0].Children[0].Fact.Predicate != "dependency_link" {
-		t.Errorf("Expected dependency_link child, got: %+v", trace.RootNodes[0])
+	if len(trace.RootNodes) != 1 || len(trace.RootNodes[0].Children) != 1 || trace.RootNodes[0].Children[0].Fact.Predicate != "import_unit" {
+		t.Errorf("Expected import_unit child, got: %+v", trace.RootNodes[0])
 	}
 
 	// 3. Test permission_gate

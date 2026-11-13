@@ -37,7 +37,7 @@ Linking between code and specifications operates at the finer grain of files and
 
 The unified unit graph carries three distinct edge families:
 
-- `code_depends(ConsumerUnit, ProviderUnit)`: Structural dependencies in code, populated from package imports (`recurse_workspace.go:128-130`), file imports (`dependency_link` and `file_imports` in `internal/world/dependency_links.go:12-51`), and symbol invocations (`code_calls` in `internal/world/cartographer.go:273-279`).
+- `code_depends(ConsumerUnit, ProviderUnit)`: Structural dependencies in code, populated from package imports (`recurse_workspace.go:128-130`), file imports (`import_unit` and `file_unit`, the import graph in factors, in `internal/world/dependency_links.go`), and symbol invocations (`code_calls` in `internal/world/cartographer.go:273-279`).
 - `spec_depends(DependentSpec, PrerequisiteSpec)`: Requirement ordering in specifications, populated from explicit document cross-references and North Star hierarchy (`northstar_supports` and `northstar_serves` in `schemas_misc.mg:67-73`).
 - `spec_reference(SpecUnit, Target, Role)`: A specification names a code, test, or predicate target in a stated role (`/witness`, `/planned_witness`, `/planned_seam`, `/negative`, `/historical`, `/cited`). A reference is evidence that the document refers to a target. It is not a claim that the target realizes anything.
 - `unit_realizes(CodeUnit, SpecUnit)`: Semantic realization. It is derived only from an accepted relation claim (section 2), never from a reference, a resolved declaration, or a model-reported confidence score.

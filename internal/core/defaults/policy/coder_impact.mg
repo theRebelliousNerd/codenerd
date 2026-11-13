@@ -10,18 +10,18 @@
 # -----------------------------------------------------------------------------
 # "Recursive Logic Bomb" Fix: Bounded recursion depth (3 levels)
 
-# Each hop leads with the impacted side and looks its importers up:
-# dependency_link holds every file import edge, the frontier a handful.
+# Each hop leads with the impacted side and looks its importers up: the unit
+# the file belongs to, then the files that import that unit.
 
 # Direct impact (1-hop)
-coder_impacted_1(X) :- modified(Y), dependency_link(X, Y, _).
-coder_impacted_1(X) :- coder_target(Y), dependency_link(X, Y, _).
+coder_impacted_1(X) :- modified(Y), file_unit(Y, Unit), import_unit(X, Unit).
+coder_impacted_1(X) :- coder_target(Y), file_unit(Y, Unit), import_unit(X, Unit).
 
 # Transitive impact (2-hop)
-coder_impacted_2(X) :- coder_impacted_1(Z), dependency_link(X, Z, _).
+coder_impacted_2(X) :- coder_impacted_1(Z), file_unit(Z, Unit), import_unit(X, Unit).
 
 # Deep impact (3-hop)
-coder_impacted_3(X) :- coder_impacted_2(Z), dependency_link(X, Z, _).
+coder_impacted_3(X) :- coder_impacted_2(Z), file_unit(Z, Unit), import_unit(X, Unit).
 
 # Union of all levels
 coder_impacted(X) :- coder_impacted_1(X).
@@ -51,7 +51,8 @@ critical_impact_edit(File) :-
 cross_package_impact(File) :-
     coder_target(File),
     file_package(File, Pkg1),
-    dependency_link(Dependent, File, _),
+    file_unit(File, Unit),
+    import_unit(Dependent, Unit),
     file_package(Dependent, Pkg2),
     coder_impacted(Dependent),
     Pkg1 != Pkg2.

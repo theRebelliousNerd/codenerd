@@ -593,7 +593,7 @@ func (tm *TransactionManager) ToFacts() []Fact {
 	//
 	// modified_file(File) is the declared file-level predicate for exactly
 	// this, and it had no producer at all — so test_impact.mg's file-level
-	// fallback rule (`impacted_test` via file_imports, :98-102) was equally
+	// fallback rule (`impacted_test` via import_unit and file_unit) was equally
 	// starved. One correct producer feeds it.
 	for _, edit := range txn.Edits {
 		facts = append(facts, Fact{

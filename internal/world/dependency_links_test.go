@@ -23,17 +23,49 @@ func writeWorkspaceFile(t *testing.T, root, rel, content string) string {
 	return full
 }
 
+// dependencyEdges is "from depends on the file to" over a set of facts: the
+// join import_unit(from, U), file_unit(to, U) the rules write (schemas_world.mg).
+// Imports that leave the workspace appear in their token form, as
+// dependency_link records them.
 func dependencyEdges(facts []Fact) map[string][]string {
+	members := make(map[string][]string)
+	for _, f := range facts {
+		if f.Predicate == "file_unit" && len(f.Args) >= 2 {
+			file, _ := f.Args[0].(string)
+			unit, _ := f.Args[1].(string)
+			members[unit] = append(members[unit], file)
+		}
+	}
 	out := make(map[string][]string)
 	for _, f := range facts {
-		if f.Predicate != "dependency_link" || len(f.Args) < 2 {
+		if len(f.Args) < 2 {
 			continue
 		}
 		from, _ := f.Args[0].(string)
-		to, _ := f.Args[1].(string)
-		out[from] = append(out[from], to)
+		switch f.Predicate {
+		case "import_unit":
+			unit, _ := f.Args[1].(string)
+			for _, to := range members[unit] {
+				if to != from {
+					out[from] = append(out[from], to)
+				}
+			}
+		case "dependency_link":
+			to, _ := f.Args[1].(string)
+			out[from] = append(out[from], to)
+		}
 	}
 	return out
+}
+
+// importsUnit reports whether facts hold import_unit(from, unit).
+func importsUnit(facts []Fact, from, unit string) bool {
+	for _, f := range facts {
+		if f.Predicate == "import_unit" && len(f.Args) >= 2 && f.Args[0] == from && f.Args[1] == unit {
+			return true
+		}
+	}
+	return false
 }
 
 func hasEdge(edges map[string][]string, from, to string) bool {
@@ -147,8 +179,10 @@ func TestDependencyLink_WhenIncremental_ShouldMatchFullScanEdges(t *testing.T) {
 	if delta.Full {
 		t.Fatal("expected delta scan")
 	}
-	if !hasEdge(dependencyEdges(delta.NewFacts), "cmd/app/main.go", "internal/core/core.go") {
-		t.Errorf("incremental scan lost the in-repo import edge; edges=%v", dependencyEdges(delta.NewFacts))
+	// The delta carries the changed file's own rows: the unit it imports. The
+	// untouched package's file_unit rows are already in the kernel.
+	if !importsUnit(delta.NewFacts, "cmd/app/main.go", "example.com/app/internal/core") {
+		t.Errorf("incremental scan lost the in-repo import; facts=%v", delta.NewFacts)
 	}
 }
 
@@ -182,57 +216,53 @@ func TestDependencyLink_WhenImportRemoved_ShouldRetractTheResolvedEdge(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasEdge(dependencyEdges(delta.RetractFacts), "cmd/app/main.go", "internal/core/core.go") {
-		t.Errorf("the resolved edge was not retracted when its import was deleted; retractions=%v", dependencyEdges(delta.RetractFacts))
+	if !importsUnit(delta.RetractFacts, "cmd/app/main.go", "example.com/app/internal/core") {
+		t.Errorf("the resolved import was not retracted when its import was deleted; retractions=%v", delta.RetractFacts)
 	}
-	if hasEdge(dependencyEdges(delta.NewFacts), "cmd/app/main.go", "internal/core/core.go") {
-		t.Errorf("the edge was re-asserted although the import is gone")
+	if importsUnit(delta.NewFacts, "cmd/app/main.go", "example.com/app/internal/core") {
+		t.Errorf("the import was re-asserted although it is gone")
 	}
 }
 
-// TestDependencyLink_WhenResolved_ShouldBeDeduplicatedAndSelfFree — a file that
-// imports its own package (or the same package twice) must not produce a
-// self-edge or duplicates; both make impact cascades cycle on themselves.
+// TestDependencyLink_WhenResolved_ShouldBeDeduplicatedAndSelfFree — the same
+// package imported twice is one row, and a file that names its own package
+// imports nothing: joined with its own file_unit row it would depend on
+// itself, and impact cascades would cycle.
 func TestDependencyLink_WhenResolved_ShouldBeDeduplicatedAndSelfFree(t *testing.T) {
 	idx := &repoFileIndex{
-		goFilesByDir: map[string][]string{"pkg": {"pkg/a.go", "pkg/b.go"}},
-		all:          map[string]struct{}{"pkg/a.go": {}, "pkg/b.go": {}},
+		goFilesByDir: map[string][]string{"pkg": {"pkg/a.go", "pkg/b.go"}, "other": {"other/o.go"}},
+		all:          map[string]struct{}{"pkg/a.go": {}, "pkg/b.go": {}, "other/o.go": {}},
 		goModule:     "example.com/app",
 	}
 	raw := []Fact{
 		{Predicate: "dependency_link", Args: []any{"pkg/a.go", "pkg:example.com/app/pkg", "example.com/app/pkg"}},
 		{Predicate: "dependency_link", Args: []any{"pkg/a.go", "pkg:example.com/app/pkg", "example.com/app/pkg"}},
 	}
+	if got := resolveDependencyLinksWithIndex(idx, raw); len(got) != 0 {
+		t.Fatalf("a file naming its own package resolved to %v, want nothing", got)
+	}
+	raw = []Fact{
+		{Predicate: "dependency_link", Args: []any{"other/o.go", "pkg:example.com/app/pkg", "example.com/app/pkg"}},
+		{Predicate: "dependency_link", Args: []any{"other/o.go", "pkg:example.com/app/pkg", "example.com/app/pkg"}},
+	}
 	got := resolveDependencyLinksWithIndex(idx, raw)
-	if len(got) != 3 {
-		t.Fatalf("expected the resolved edge, its file_imports row and one imports_project_file (dedup, no self-edge), got %d: %v", len(got), got)
+	if len(got) != 2 {
+		t.Fatalf("expected one import_unit row and one imports_project_file for a package imported twice, got %d: %v", len(got), got)
 	}
-	byPred := make(map[string][]Fact)
+	if !importsUnit(got, "other/o.go", "example.com/app/pkg") {
+		t.Fatalf("missing import_unit(other/o.go, example.com/app/pkg): %v", got)
+	}
 	for _, f := range got {
-		byPred[f.Predicate] = append(byPred[f.Predicate], f)
-	}
-	if len(byPred["dependency_link"]) != 1 {
-		t.Fatalf("expected exactly one dependency_link edge, got %v", byPred["dependency_link"])
-	}
-	if to, _ := byPred["dependency_link"][0].Args[1].(string); to != "pkg/b.go" {
-		t.Errorf("resolved edge target = %q, want pkg/b.go", to)
-	}
-	// file_imports rides the same resolved edge, so the same dedup and
-	// self-edge rules apply to it without a second code path.
-	if len(byPred["file_imports"]) != 1 {
-		t.Fatalf("expected exactly one file_imports row beside the edge, got %v", byPred["file_imports"])
-	}
-	if from, _ := byPred["file_imports"][0].Args[0].(string); from != "pkg/a.go" {
-		t.Errorf("file_imports importer = %q, want pkg/a.go", from)
-	}
-	if to, _ := byPred["file_imports"][0].Args[1].(string); to != "pkg/b.go" {
-		t.Errorf("file_imports imported = %q, want pkg/b.go", to)
+		if f.Predicate == "dependency_link" || f.Predicate == "file_imports" {
+			t.Fatalf("the resolver emitted a product row: %s", f.String())
+		}
 	}
 }
 
-// The old 50_000 cap dropped the sorted tail. One past that count must still
-// emit every file->file edge and its file_imports row, including the last
-// file, which is the one the tail drop discarded.
+// The product of an importer and a large package was one row per file, and an
+// early cap of 50,000 dropped the sorted tail. In factors the import is one
+// row whatever the package's size, and the last file is reached through its
+// own file_unit row.
 func TestResolveDependencyLinks_PastFormerCap_KeepsEveryEdge(t *testing.T) {
 	const n = 50001
 	files := make([]string, n)
@@ -249,34 +279,15 @@ func TestResolveDependencyLinks_PastFormerCap_KeepsEveryEdge(t *testing.T) {
 		Args:      []any{"cmd/main.go", "pkg:example.com/app/pkg", "example.com/app/pkg"},
 	}}
 	got := resolveDependencyLinksWithIndex(idx, raw)
-	if len(got) != 2*n+1 {
-		t.Fatalf("resolved facts = %d, want %d (edge + file_imports for every file, one imports_project_file)", len(got), 2*n+1)
+	if len(got) != 2 || !importsUnit(got, "cmd/main.go", "example.com/app/pkg") {
+		t.Fatalf("resolved facts = %v, want one import_unit row and one imports_project_file", got)
 	}
-	links, imports, importers := 0, 0, 0
-	seenLast := false
-	last := files[n-1]
-	for _, f := range got {
-		switch f.Predicate {
-		case "dependency_link":
-			links++
-			if to, _ := f.Args[1].(string); to == last {
-				seenLast = true
-			}
-		case "file_imports":
-			imports++
-		case "imports_project_file":
-			importers++
-		default:
-			t.Errorf("unexpected predicate %s", f.Predicate)
-		}
+	last, ok := fileUnitFact(idx, files[n-1])
+	if !ok || last.Args[1] != "example.com/app/pkg" {
+		t.Fatalf("the sorted tail %s is not a member of the imported unit: %v", files[n-1], last)
 	}
-	if importers != 1 {
-		t.Fatalf("imports_project_file rows = %d, want 1 (one importer)", importers)
-	}
-	if links != n || imports != n {
-		t.Fatalf("dependency_link=%d file_imports=%d, want %d each", links, imports, n)
-	}
-	if !seenLast {
-		t.Fatalf("sorted tail %s was dropped", last)
+	all := append(got, last)
+	if !hasEdge(dependencyEdges(all), "cmd/main.go", files[n-1]) {
+		t.Fatalf("the importer does not reach the sorted tail %s", files[n-1])
 	}
 }

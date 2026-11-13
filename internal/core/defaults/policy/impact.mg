@@ -2,17 +2,19 @@
 # Section 5 of Cortex Executive Policy
 
 
-# Direct impact. The modified file leads: dependency_link has a row per
-# file import edge (162k on this repository), modified a handful or none.
+# Direct impact. The modified file leads: its unit, then the files that import
+# that unit (schemas_world.mg, file_unit / import_unit).
 impacted(X) :-
     modified(Y),
-    dependency_link(X, Y, _).
+    file_unit(Y, Unit),
+    import_unit(X, Unit).
 
 # Transitive closure (recursive impact), led by the frontier for the same
 # reason: the delta of impacted, not the whole edge relation, drives a round.
 impacted(X) :-
     impacted(Z),
-    dependency_link(X, Z, _).
+    file_unit(Z, Unit),
+    import_unit(X, Unit).
 
 # Unsafe to refactor if impacted code lacks test coverage
 unsafe_to_refactor(Target) :-

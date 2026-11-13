@@ -3,6 +3,7 @@ package world
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"codenerd/internal/types"
 )
@@ -10,10 +11,11 @@ import (
 // Import-graph measurements.
 //
 // Two reviewer findings need facts about the whole import graph that a rule
-// cannot derive cheaply. Measured on this repository's 162k file import
-// edges (2026-10-29): "a test file imports no project file" enumerated every
-// edge of every test file (0.56 s per evaluation), and file-level
-// reachability, which import-cycle detection needs, passes 3,000,000 facts.
+// cannot derive cheaply. Measured on this repository (2026-10-29, when the
+// import graph was stored as 162k file-to-file edges): "a test file imports no
+// project file" enumerated every edge of every test file (0.56 s per
+// evaluation), and file-level reachability, which import-cycle detection
+// needs, passes 3,000,000 facts.
 // Go measures both once, where the edges are built, and the rules read the
 // results:
 //
@@ -25,30 +27,48 @@ import (
 //	                                  named by its smallest path (whole-graph,
 //	                                  recomputed whenever the edges change)
 
-// ImportCycleFacts measures the import cycles among the dependency_link rows
-// in facts. Only file-to-file edges can close a cycle: an external import's
-// pkg:/mod: token has no outgoing edge.
+// importUnitNode names a unit in the cycle graph. No file path starts with a
+// NUL byte, so a unit can never be mistaken for a file.
+const importUnitNode = "\x00unit:"
+
+// ImportCycleFacts measures the import cycles among the import_unit and
+// file_unit rows in facts. A file reaches the unit it imports and a unit
+// reaches each of its files, so the files of a strongly connected component
+// are exactly those the stored file-to-file product connected, on a graph of
+// the factors' size. An import that leaves the workspace names no unit and has
+// no outgoing edge.
 func ImportCycleFacts(facts []types.Fact) []types.Fact {
 	succ := make(map[string][]string)
 	for _, f := range facts {
-		if f.Predicate != "dependency_link" || len(f.Args) < 2 {
+		if len(f.Args) < 2 {
 			continue
 		}
-		from, ok1 := f.Args[0].(string)
-		to, ok2 := f.Args[1].(string)
-		if !ok1 || !ok2 || from == "" || to == "" || from == to {
+		file, ok1 := f.Args[0].(string)
+		unit, ok2 := f.Args[1].(string)
+		if !ok1 || !ok2 || file == "" || unit == "" {
 			continue
 		}
-		succ[from] = append(succ[from], to)
+		switch f.Predicate {
+		case "import_unit":
+			succ[file] = append(succ[file], importUnitNode+unit)
+		case "file_unit":
+			succ[importUnitNode+unit] = append(succ[importUnitNode+unit], file)
+		}
 	}
 	var out []types.Fact
 	for _, comp := range stronglyConnected(succ) {
-		if len(comp) < 2 {
+		files := comp[:0:0]
+		for _, node := range comp {
+			if !strings.HasPrefix(node, importUnitNode) {
+				files = append(files, node)
+			}
+		}
+		if len(files) < 2 {
 			continue
 		}
-		slices.Sort(comp)
-		for _, file := range comp {
-			out = append(out, types.Fact{Predicate: "import_cycle_member", Args: []any{file, comp[0]}})
+		slices.Sort(files)
+		for _, file := range files {
+			out = append(out, types.Fact{Predicate: "import_cycle_member", Args: []any{file, files[0]}})
 		}
 	}
 	return out
@@ -123,12 +143,16 @@ func stronglyConnected(succ map[string][]string) [][]string {
 }
 
 // refreshImportCycles re-measures import_cycle_member from the kernel's
-// current dependency_link rows and replaces it.
+// current import_unit and file_unit rows and replaces it.
 // Unchanged measurements write nothing.
 func refreshImportCycles(kernel types.Kernel) error {
-	edges, err := kernel.Query("dependency_link")
-	if err != nil {
-		return fmt.Errorf("import cycles: query dependency_link: %w", err)
+	var edges []types.Fact
+	for _, pred := range []string{"import_unit", "file_unit"} {
+		rows, err := kernel.Query(pred)
+		if err != nil {
+			return fmt.Errorf("import cycles: query %s: %w", pred, err)
+		}
+		edges = append(edges, rows...)
 	}
 	held, err := kernel.Query("import_cycle_member")
 	if err != nil {
@@ -169,14 +193,14 @@ func sameFactRows(a, b []types.Fact) bool {
 }
 
 // importEdgesChanged reports whether a delta scan changed the import graph:
-// the dependency_link rows it retracts and the ones it asserts differ. A
+// the import_unit and file_unit rows it retracts and the ones it asserts differ. A
 // re-parsed file whose imports did not change re-emits the same rows.
 func importEdgesChanged(retracted, added []types.Fact) bool {
 	set := func(facts []types.Fact) map[string]int {
 		out := make(map[string]int)
 		for _, f := range facts {
-			if f.Predicate == "dependency_link" {
-				out[fmt.Sprintf("%q", f.Args)]++
+			if f.Predicate == "import_unit" || f.Predicate == "file_unit" {
+				out[f.Predicate+fmt.Sprintf("%q", f.Args)]++
 			}
 		}
 		return out

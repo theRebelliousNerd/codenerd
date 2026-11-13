@@ -19,8 +19,8 @@
 # identically, and a second Decl makes the whole program fail analysis with
 # "declared more than once" — which is why this file could never be loaded
 # into the kernel alongside the constitution.
-# Decl file_imports(Importer, Imported) - From schemas_codedom_polyglot.mg
-# Decl for file_imports intentionally omitted: internal/core/defaults declares it
+# Decl import_unit(File, Unit), file_unit(File, Unit) - From schemas_world.mg
+# Decls for import_unit and file_unit intentionally omitted: internal/core/defaults declares it
 # identically, and a second Decl makes the whole program fail analysis with
 # "declared more than once" — which is why this file could never be loaded
 # into the kernel alongside the constitution.
@@ -584,7 +584,8 @@ context_priority(Path, 70) :-
 # Lower priority: imported files
 context_priority(Path, 50) :-
     user_intent(_, _, _, Target, _),
-    file_imports(Target, Path),
+    import_unit(Target, Unit),
+    file_unit(Path, Unit),
     file_exists(Path).
 
 # Lowest priority: test files for non-test intents

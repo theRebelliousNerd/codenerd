@@ -291,9 +291,15 @@ func dependencyFixture(seed int64, dirs, filesPerDir, funcsPerFile int) *mockKer
 	k.facts["code_calls"] = append(k.facts["code_calls"], k.facts["code_calls"][:5]...)
 	k.facts["code_calls"] = append(k.facts["code_calls"], codedom.FactData{Predicate: "code_calls", Args: []any{sourceRefs[0], sourceRefs[0]}})
 	for range len(files) {
-		k.facts["file_imports"] = append(k.facts["file_imports"], codedom.FactData{Predicate: "file_imports", Args: []any{pick(files), pick(files)}})
+		// The oracle reads the pair; the builder reads the same edge in
+		// factors, each imported file its own unit.
+		from, to := pick(files), pick(files)
+		k.facts["file_imports"] = append(k.facts["file_imports"], codedom.FactData{Predicate: "file_imports", Args: []any{from, to}})
+		k.facts["import_unit"] = append(k.facts["import_unit"], codedom.FactData{Predicate: "import_unit", Args: []any{from, "unit:" + to}})
+		k.facts["file_unit"] = append(k.facts["file_unit"], codedom.FactData{Predicate: "file_unit", Args: []any{to, "unit:" + to}})
 	}
 	k.facts["file_imports"] = append(k.facts["file_imports"], k.facts["file_imports"][:3]...)
+	k.facts["import_unit"] = append(k.facts["import_unit"], k.facts["import_unit"][:3]...)
 	return k
 }
 

@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -39,7 +40,7 @@ func exerciseWorldPublicationRetry(t *testing.T, ctx context.Context, cortex *Co
 				}
 				found := false
 				for _, link := range links {
-					if link.Args[1] == "/depends_on" && link.Args[2] == "lib/lib.go" {
+					if link.Args[1] == "/imports" && strings.HasSuffix(fmt.Sprint(link.Args[2]), "/lib") {
 						found = true
 					}
 				}
@@ -78,7 +79,7 @@ func exerciseWorldPublicationRetry(t *testing.T, ctx context.Context, cortex *Co
 					t.Fatalf("landed action must expose projection failure: result=%+v err=%v", removed, err)
 				}
 			}
-			if rows, err := cortex.Kernel.Query(`dependency_link("main.go", "lib/lib.go", I)`); err != nil || len(rows) != 0 {
+			if rows, err := cortex.Kernel.Query(`import_unit("main.go", U)`); err != nil || len(rows) != 0 {
 				t.Fatalf("world application failed while graph was pending: %v, err=%v", rows, err)
 			}
 			assertDependency(true) // the SQL abort rolled back the complete replacement
@@ -131,7 +132,7 @@ func exerciseWorldPublicationRetry(t *testing.T, ctx context.Context, cortex *Co
 		t.Fatal(err)
 	}
 	for _, link := range links {
-		if link.Args[1] == "/depends_on" && link.Args[2] == "lib/lib.go" {
+		if link.Args[1] == "/imports" && strings.HasSuffix(fmt.Sprint(link.Args[2]), "/lib") {
 			t.Fatalf("cold-mirror failure suppressed graph retirement: %v", links)
 		}
 	}

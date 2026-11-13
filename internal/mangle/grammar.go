@@ -159,6 +159,20 @@ func (v *AtomValidator) loadCorePredicates() {
 			{Name: "Signature", Type: ArgTypeString},
 		},
 	}
+	v.ValidPredicates["file_unit"] = PredicateSpec{
+		Name: "file_unit", Arity: 2,
+		Args: []ArgSpec{
+			{Name: "File", Type: ArgTypeString},
+			{Name: "Unit", Type: ArgTypeString},
+		},
+	}
+	v.ValidPredicates["import_unit"] = PredicateSpec{
+		Name: "import_unit", Arity: 2,
+		Args: []ArgSpec{
+			{Name: "File", Type: ArgTypeString},
+			{Name: "Unit", Type: ArgTypeString},
+		},
+	}
 	v.ValidPredicates["dependency_link"] = PredicateSpec{
 		Name: "dependency_link", Arity: 3,
 		Args: []ArgSpec{

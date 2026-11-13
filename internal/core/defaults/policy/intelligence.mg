@@ -18,9 +18,12 @@ intelligence_file_topology(Path, Hash, Language, Lines, IsTest) :-
     file_topology(Path, Hash, Language, _, IsTest),
     file_line_count(Path, Lines).
 
-intelligence_file_depends(File, DependsOn) :-
-    file_topology(DependsOn, _, _, _, _),
-    dependency_link(File, DependsOn, _).
+# What a file depends on is a join, never a stored relation: import_unit names
+# the units a file imports and file_unit the unit a file belongs to
+# (schemas_world.mg). intelligence_file_depends used to copy every file->file
+# edge of the workspace into a derived relation (225k rows here) so that two
+# rules could read it; they join the factors now, led by the files they ask
+# about.
 
 # Churn from the repository history; the gatherer's hotspot list adds to it.
 Decl intelligence_churn(Path, Churn) bound [/string, /number].
@@ -96,10 +99,17 @@ intelligence_chestertons_fence(Path, "WARNING: Very high churn - requires carefu
 # Core infrastructure detection - file has 3+ dependents
 # Uses aggregation instead of O(N³) self-join
 Decl intelligence_dependent_count(Path, Count) bound [/string, /number].
-intelligence_dependent_count(Path, N) :-
-    intelligence_file_depends(_, Path) |>
-    do fn:group_by(Path),
+# The files that import a unit are counted once per unit, and every file of
+# the unit has that many dependents.
+Decl intelligence_unit_importers(Unit, Count) bound [/string, /number].
+intelligence_unit_importers(Unit, N) :-
+    import_unit(_, Unit) |>
+    do fn:group_by(Unit),
     let N = fn:count().
+
+intelligence_dependent_count(Path, N) :-
+    file_unit(Path, Unit),
+    intelligence_unit_importers(Unit, N).
 
 intelligence_is_core_infrastructure(Path) :-
     intelligence_dependent_count(Path, N),
@@ -195,11 +205,13 @@ intelligence_high_impact(Path) :-
 # closure is computed for those files only, never for the whole import graph.
 intelligence_impact_scope(Changed, Affected) :-
     intelligence_campaign_path(Changed),
-    intelligence_file_depends(Affected, Changed).
+    file_unit(Changed, Unit),
+    import_unit(Affected, Unit).
 
 intelligence_impact_scope(Changed, Affected) :-
     intelligence_impact_scope(Changed, Mid),
-    intelligence_file_depends(Affected, Mid),
+    file_unit(Mid, Unit),
+    import_unit(Affected, Unit),
     Changed != Affected.
 
 # -----------------------------------------------------------------------------

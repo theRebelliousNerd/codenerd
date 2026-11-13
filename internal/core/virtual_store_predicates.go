@@ -200,8 +200,8 @@ func (v *VirtualStore) ReplaceLinkFacts(retired, current []Fact, source string) 
 	return errors.Join(errs...)
 }
 
-// projectLinkFacts maps dependency_link and symbol_graph facts to their
-// knowledge-graph edges. A fact with an empty endpoint is reported, not
+// projectLinkFacts maps dependency_link, import_unit, file_unit and
+// symbol_graph facts to their knowledge-graph edges. A fact with an empty endpoint is reported, not
 // projected.
 func projectLinkFacts(facts []Fact, source string) ([]store.KnowledgeLink, []error) {
 	var out []store.KnowledgeLink
@@ -225,6 +225,25 @@ func projectLinkFacts(facts []Fact, source string) ([]store.KnowledgeLink, []err
 				}
 			}
 			out = append(out, store.KnowledgeLink{EntityA: from, Relation: "depends_on", EntityB: to, Weight: 1.0, Metadata: meta})
+		case "import_unit", "file_unit":
+			// The import graph in factors (schemas_world.mg): a file imports
+			// a unit, and a file is a member of a unit. What a file depends
+			// on is two hops through the unit's node, not a link per pair of
+			// files.
+			if len(f.Args) < 2 {
+				continue
+			}
+			file := types.ExtractString(f.Args[0])
+			unit := types.ExtractString(f.Args[1])
+			relation := "imports"
+			if f.Predicate == "file_unit" {
+				relation = "member_of"
+			}
+			if file == "" || unit == "" {
+				errs = append(errs, fmt.Errorf("%s %q -> %q: empty endpoint", relation, file, unit))
+				continue
+			}
+			out = append(out, store.KnowledgeLink{EntityA: file, Relation: relation, EntityB: unit, Weight: 1.0, Metadata: map[string]any{"source": source}})
 		case "symbol_graph":
 			if len(f.Args) < 4 {
 				continue

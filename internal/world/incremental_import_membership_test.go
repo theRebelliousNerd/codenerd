@@ -15,7 +15,7 @@ import (
 func importMembershipRows(facts []core.Fact, owner string) []string {
 	set := map[string]bool{}
 	for _, f := range facts {
-		if f.Predicate != "dependency_link" && f.Predicate != "file_imports" && f.Predicate != "imports_project_file" {
+		if f.Predicate != "dependency_link" && f.Predicate != "import_unit" && f.Predicate != "file_unit" && f.Predicate != "imports_project_file" {
 			continue
 		}
 		if owner != "" && (len(f.Args) == 0 || f.Args[0] != owner) {
@@ -134,7 +134,7 @@ func TestIncrementalImports_TargetMembershipMatchesFull(t *testing.T) {
 					t.Fatal(err)
 				}
 				var applied []core.Fact
-				for _, predicate := range []string{"dependency_link", "file_imports", "imports_project_file"} {
+				for _, predicate := range []string{"dependency_link", "import_unit", "file_unit", "imports_project_file"} {
 					facts, err := kernel.Query(predicate)
 					if err != nil {
 						t.Fatal(err)

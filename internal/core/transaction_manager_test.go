@@ -726,7 +726,7 @@ func TestTransactionManager_MultiFileFactGeneration(t *testing.T) {
 
 	// Verify all file paths are represented, under the canonical identity
 	// (workspace-relative, forward-slash) that every other file fact carries;
-	// test_impact.mg joins modified_file against file_imports, which the
+	// test_impact.mg joins modified_file against file_unit, which the
 	// scanner keys canonically, so an absolute path here matched nothing.
 	fileSet := make(map[string]bool)
 	for _, f := range planEditFiles {

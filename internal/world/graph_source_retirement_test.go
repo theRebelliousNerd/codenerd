@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,8 +72,21 @@ func TestIncrementalScan_RemovedImportRetiresItsGraphEdge(t *testing.T) {
 	}
 
 	scan()
-	if _, ok := edges()["depends_on b/b.go"]; !ok {
-		t.Fatalf("precondition: the import a.go -> b/b.go was not projected: %v", edges())
+	// The import is projected in factors: a.go imports the unit, and b/b.go is
+	// a member of it (schemas_world.mg).
+	if _, ok := edges()["imports example.com/ws/b"]; !ok {
+		t.Fatalf("precondition: the import a.go -> example.com/ws/b was not projected: %v", edges())
+	}
+	if links, err := db.QueryLinks("b/b.go", "outgoing"); err != nil {
+		t.Fatal(err)
+	} else {
+		member := false
+		for _, l := range links {
+			member = member || (l.Relation == "member_of" && l.EntityB == "example.com/ws/b")
+		}
+		if !member {
+			t.Fatalf("precondition: b/b.go is not projected as a member of its unit: %v", links)
+		}
 	}
 	// Knowledge the session recorded about the same file is not the scanner's.
 	if err := db.StoreLink("a.go", "depends_on", "notes/design.md", 1.0, map[string]any{"source": "memory_operation"}); err != nil {
@@ -85,12 +99,17 @@ func TestIncrementalScan_RemovedImportRetiresItsGraphEdge(t *testing.T) {
 	scan()
 
 	got := edges()
-	if _, stale := got["depends_on b/b.go"]; stale {
+	if _, stale := got["imports example.com/ws/b"]; stale {
 		t.Fatalf("a.go no longer imports b, but its graph edge survived the refresh: %v", got)
 	}
 	for edge, src := range got {
-		if src != "memory_operation" && len(edge) > len("depends_on ") && edge[:len("depends_on ")] == "depends_on " {
-			t.Fatalf("an import edge outlived the import: %s (from %s) in %v", edge, src, got)
+		if src == "memory_operation" {
+			continue
+		}
+		for _, relation := range []string{"depends_on ", "imports "} {
+			if strings.HasPrefix(edge, relation) {
+				t.Fatalf("an import edge outlived the import: %s (from %s) in %v", edge, src, got)
+			}
 		}
 	}
 	if got["depends_on notes/design.md"] != "memory_operation" {

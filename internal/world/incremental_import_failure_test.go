@@ -19,7 +19,10 @@ func TestIncrementalImports_FailedRefreshPreservesGeneration(t *testing.T) {
 		t.Run(failure, func(t *testing.T) {
 			root := t.TempDir()
 			writeWorkspaceFile(t, root, "go.mod", "module example.com/ws\n\ngo 1.26\n")
-			source := "package app\nimport \"example.com/ws/pkg\"\nfunc A(){pkg.B()}\n"
+			// The importer names a package that has no file yet: the file added
+			// below gives that unit its first member, which is the one change to
+			// another file that alters an importer's own rows.
+			source := "package app\nimport (\n\"example.com/ws/pkg\"\n\"example.com/ws/fresh\"\n)\nfunc A(){pkg.B(); fresh.C()}\n"
 			importer := writeWorkspaceFile(t, root, "app/a.go", source)
 			writeWorkspaceFile(t, root, "pkg/b.go", "package pkg\nfunc B(){}\n")
 			var db *store.LocalStore
@@ -45,7 +48,7 @@ func TestIncrementalImports_FailedRefreshPreservesGeneration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			added := writeWorkspaceFile(t, root, "pkg/c.go", "package pkg\nfunc C(){}\n")
+			added := writeWorkspaceFile(t, root, "fresh/c.go", "package fresh\nfunc C(){}\n")
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			injected, firstCensus := false, false

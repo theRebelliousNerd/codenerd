@@ -491,12 +491,14 @@ Decl coupled_files_linked(FileA, FileB).
 coupled_files_linked(FileA, FileB) :-
     co_commit_count(FileA, FileB, N),
     N >= 3,
-    dependency_link(FileA, FileB, _).
+    import_unit(FileA, Unit),
+    file_unit(FileB, Unit).
 
 coupled_files_linked(FileA, FileB) :-
     co_commit_count(FileA, FileB, N),
     N >= 3,
-    dependency_link(FileB, FileA, _).
+    import_unit(FileB, Unit),
+    file_unit(FileA, Unit).
 
 # A commit that touches more than this many files (a reformat, a vendored
 # import, an initial import) is not evidence that any two of its files change
@@ -611,11 +613,12 @@ layer(File, Layer) :-
     configured_layer_pattern(Pattern, Layer),
     :string:contains(File, Pattern).
 
-# Led by the entrypoint files, the rare side; their importers come from
-# dependency_link's second argument.
+# Led by the entrypoint files, the rare side; their importers are the files
+# that import the unit an entrypoint file belongs to.
 architecture_violation(CallerFile, CalleeFile) :-
     layer(CalleeFile, /entrypoint),
-    dependency_link(CallerFile, CalleeFile, _),
+    file_unit(CalleeFile, Unit),
+    import_unit(CallerFile, Unit),
     layer(CallerFile, /library).
 
 # Finding

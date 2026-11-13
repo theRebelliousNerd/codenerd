@@ -299,19 +299,37 @@ func (b *TestDependencyBuilder) buildDependencyEdges(ctx context.Context) error 
 		return err
 	}
 
-	// Method 2: Import relationships
-	importFacts, err := b.kernel.Query("file_imports")
+	// Method 2: Import relationships. A test file that imports a unit
+	// depends on every file of it (schemas_world.mg, import_unit / file_unit).
+	members := make(map[string][]string)
+	if unitFacts, err := b.kernel.Query("file_unit"); err == nil {
+		for _, fact := range unitFacts {
+			if len(fact.Args) < 2 {
+				continue
+			}
+			file, _ := fact.Args[0].(string)
+			unit, _ := fact.Args[1].(string)
+			if file != "" && unit != "" {
+				members[unit] = append(members[unit], file)
+			}
+		}
+	}
+	importFacts, err := b.kernel.Query("import_unit")
 	if err == nil {
 		for _, fact := range importFacts {
 			if len(fact.Args) < 2 {
 				continue
 			}
 			importer, _ := fact.Args[0].(string)
-			imported, _ := fact.Args[1].(string)
-
-			if b.testFiles[importer] {
-				// All test functions in importer depend on all elements in imported
-				b.addFileLevelDependency(importer, imported)
+			unit, _ := fact.Args[1].(string)
+			if !b.testFiles[importer] {
+				continue
+			}
+			for _, imported := range members[unit] {
+				if imported != importer {
+					// All test functions in importer depend on all elements in imported
+					b.addFileLevelDependency(importer, imported)
+				}
 			}
 		}
 	}

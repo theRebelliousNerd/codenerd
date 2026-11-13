@@ -16,7 +16,7 @@ import (
 // scanners produce. Until W1 it derived nothing: is_test_function had no
 // producer, and code_calls used a bare spelling no code_element join could
 // meet. W1 proved the call rules from real producer output with the file
-// facts (is_test_file, file_imports, file_package) simulated;
+// facts (is_test_file, import_unit, file_package) simulated;
 // W3 gave those their producers in the fast scanner, and these tests now
 // take every input except the edit trigger from real producer output — not
 // hand-spelled facts that are self-consistent and wrong (see
@@ -69,7 +69,7 @@ func collectProducerFacts(t *testing.T, root string) []core.Fact {
 
 // collectScannerFileFacts runs the production fast scanner over the fixture
 // and keeps the test-impact file facts: file_package, is_test_file,
-// file_imports and the file_dir companion the same-directory joins group
+// import_unit, file_unit and the file_dir companion the same-directory joins group
 // on. The filter keeps each scenario's seed focused; every kept row is real
 // producer output, spelled exactly as the .mg joins read it.
 func collectScannerFileFacts(t *testing.T, root string) []core.Fact {
@@ -81,7 +81,7 @@ func collectScannerFileFacts(t *testing.T, root string) []core.Fact {
 	var out []core.Fact
 	for _, f := range facts {
 		switch f.Predicate {
-		case "file_package", "is_test_file", "file_imports", "file_dir":
+		case "file_package", "is_test_file", "import_unit", "file_unit", "file_dir":
 			out = append(out, f)
 		}
 	}
@@ -219,7 +219,7 @@ func TestCodeElement_WhenTestFunction_ShouldEmitIsTestFunction(t *testing.T) {
 // plus the edit trigger. element_modified is hand-asserted in the producer's
 // shape (this test does not run a CodeDOM edit); is_test_file, file_dir and
 // file_package come from the fast scanner. The fixture has no in-repo imports,
-// so no file_imports row exists and every dependency below must come through
+// so no import_unit row exists and every dependency below must come through
 // the code_calls (R2) and same-package (R3) rules.
 func callsOnlySeed(t *testing.T, root string) []core.Fact {
 	t.Helper()
@@ -244,8 +244,8 @@ func TestTestImpactChain_WhenCallsOnly_ShouldDeriveDirectImpact(t *testing.T) {
 	)
 	// No in-repo imports in this fixture, so the file-import rule (R1) has
 	// nothing to join; this pins that the scenario exercises R2 and R3 only.
-	if rows := queryRows(t, k, "file_imports"); len(rows) != 0 {
-		t.Fatalf("single-package fixture produced file_imports rows %v; the R2/R3 isolation is broken", rows)
+	if rows := queryRows(t, k, "import_unit"); len(rows) != 0 {
+		t.Fatalf("single-package fixture produced import_unit rows %v; the R2/R3 isolation is broken", rows)
 	}
 	// s := &S{} then s.M() resolves to the method's code_element fn:p.S.M.
 	// t.Fail() does not: *testing.T is not a type of this package, so the
@@ -299,7 +299,7 @@ const (
 // writeTestImpactImportFixture lays out a two-package workspace: q/lib.go
 // holds the struct, method and functions, and p/app_test.go imports the q
 // package and tests it. Unlike the single-package fixture, this one has a
-// genuine in-repo import for the scanner to resolve into file_imports.
+// genuine in-repo import for the scanner to resolve into import_unit.
 func writeTestImpactImportFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -314,7 +314,7 @@ func writeTestImpactImportFixture(t *testing.T) string {
 // collectImportSeed runs every production producer over the import fixture:
 // the scope (which follows the test file's import into q/lib.go, so both
 // files' code_elements are present), the Cartographer over both files, and
-// the fast scanner's file facts — including the real file_imports edge.
+// the fast scanner's file facts — including the real import_unit edge.
 func collectImportSeed(t *testing.T, root string) []core.Fact {
 	t.Helper()
 	scope := NewFileScope(root)
@@ -334,23 +334,25 @@ func collectImportSeed(t *testing.T, root string) []core.Fact {
 	scannerFacts := collectScannerFileFacts(t, root)
 	// The edge this scenario exists for must be in the scanner's output,
 	// not hand-made: fail here rather than asserting a vacuous chain.
-	found := false
+	const unit = "example.com/impact/q"
+	imports, member := false, false
 	for _, f := range scannerFacts {
-		if f.Predicate == "file_imports" && len(f.Args) == 2 &&
-			fmt.Sprint(f.Args[0]) == impactImportTestFile && fmt.Sprint(f.Args[1]) == impactImportSrcFile {
-			found = true
-			break
+		if len(f.Args) != 2 || fmt.Sprint(f.Args[1]) != unit {
+			continue
 		}
+		imports = imports || f.Predicate == "import_unit" && fmt.Sprint(f.Args[0]) == impactImportTestFile
+		member = member || f.Predicate == "file_unit" && fmt.Sprint(f.Args[0]) == impactImportSrcFile
 	}
-	if !found {
-		t.Fatalf("scanner produced no file_imports(%s, %s); seed=%v", impactImportTestFile, impactImportSrcFile, scannerFacts)
+	if !imports || !member {
+		t.Fatalf("scanner produced no import_unit(%s, %s) with file_unit(%s, %s); seed=%v",
+			impactImportTestFile, unit, impactImportSrcFile, unit, scannerFacts)
 	}
 	return append(append(facts, scannerFacts...), elementModified("fn:q.Target"))
 }
 
 // TestTestImpactChain_WhenFileImports_ShouldDeriveCrossProduct proves the
 // file-import rule (R1) lives on a real import: the scanner resolves the
-// test file's import of q into file_imports, R1 derives every
+// test file's import of q into import_unit, R1 derives every
 // test-to-element pair across the two files, so TestMethod is impacted too
 // (by the same edit), both tests are high priority, and Helper is covered,
 // leaving no gap.
@@ -442,7 +444,7 @@ func newChainCortex(t *testing.T) *core.CortexKernel {
 			"code_element", "element_signature", "element_visibility",
 			"element_parent", "code_interactable", "is_test_function",
 			"active_file", "file_in_scope",
-			"code_calls", "file_imports", "file_dir",
+			"code_calls", "import_unit", "file_unit", "file_dir",
 			"element_modified", "modified_file", "file_package", "is_test_file",
 			"type_embeds", "go_struct",
 			"assigns", "uses", "guards_block", "guards_return",

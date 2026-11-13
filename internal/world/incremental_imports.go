@@ -43,7 +43,10 @@ func needsImportReplacement(root string, prior map[string]CacheEntry, facts []co
 			previousFiles = append(previousFiles, canonicalScanPath(root, p))
 		}
 	}
-	oldRows := resolveDependencyLinksWithIndex(newRepoFileIndex(root, previousFiles), facts)
+	// Both sides are the same rows -- imports and member units -- under the
+	// previous and the current file set.
+	previous := newRepoFileIndex(root, previousFiles)
+	oldRows := append(resolveDependencyLinksWithIndex(previous, facts), fileUnitFacts(previous, facts)...)
 	newRows := ResolveDependencyLinks(root, facts)
 	asSet := func(rows []core.Fact) map[string]bool {
 		set := make(map[string]bool, len(rows))
@@ -55,9 +58,16 @@ func needsImportReplacement(root string, prior map[string]CacheEntry, facts []co
 	return !maps.Equal(asSet(oldRows), asSet(newRows))
 }
 
-// importRefreshPaths finds unchanged admitted importers whose stored resolved
-// edges differ under the current file census. Queue them through the ordinary
-// per-file staging path so their old owner rows retract and new rows persist.
+// importRefreshPaths finds unchanged admitted files whose stored import-graph
+// rows differ from what the current file census resolves: an importer whose
+// import_unit rows changed (a package appeared or lost its last file, the
+// module path moved), and a member whose file_unit row is missing or names
+// another unit. Queue them through the ordinary per-file staging path so their
+// old owner rows retract and new rows persist.
+//
+// A cache written before the import graph was factored holds the product
+// instead (file-valued dependency_link rows and file_imports): every such file
+// differs here and is restaged once, which is the migration.
 func importRefreshPaths(ctx context.Context, root string, db *store.LocalStore, current map[string]os.FileInfo, idx *repoFileIndex, scheduled []string) ([]string, error) {
 	if db == nil {
 		return nil, nil
@@ -65,7 +75,7 @@ func importRefreshPaths(ctx context.Context, root string, db *store.LocalStore, 
 	// Borrow the store handle for a cancellable read of only import rows;
 	// close the cursor, never the owning database.
 	rows, err := db.GetDB().QueryContext(ctx, `SELECT predicate, args FROM world_facts
-		WHERE depth = 'fast' AND predicate IN ('dependency_link', 'file_imports', 'imports_project_file')`)
+		WHERE depth = 'fast' AND predicate IN ('dependency_link', 'file_imports', 'imports_project_file', 'import_unit', 'file_unit')`)
 	if err != nil {
 		return nil, fmt.Errorf("load prior import facts: %w", err)
 	}
@@ -95,7 +105,7 @@ func importRefreshPaths(ctx context.Context, root string, db *store.LocalStore, 
 		if err != nil {
 			return nil, fmt.Errorf("decode prior import facts: %w", err)
 		}
-		if len(row.Args) == 0 || (row.Predicate != "dependency_link" && row.Predicate != "file_imports" && row.Predicate != "imports_project_file") {
+		if len(row.Args) == 0 {
 			continue
 		}
 		from, ok := row.Args[0].(string)
@@ -120,16 +130,26 @@ func importRefreshPaths(ctx context.Context, root string, db *store.LocalStore, 
 		return nil, err
 	}
 	var affected []string
-	for from, group := range byFile {
+	// Every current file is judged, not only those with stored rows: a member
+	// that imports nothing has no stored row to find it by, and still owes
+	// its file_unit.
+	for from, walked := range paths {
 		if err := ctx.Err(); err != nil {
 			return nil, err
+		}
+		group := byFile[from]
+		if group == nil {
+			group = &imports{resolved: map[string]bool{}}
 		}
 		fresh := map[string]bool{}
 		for _, f := range resolveDependencyLinksWithIndex(idx, group.raw) {
 			fresh[f.String()] = true
 		}
+		if unit, ok := fileUnitFact(idx, from); ok {
+			fresh[unit.String()] = true
+		}
 		if !maps.Equal(group.resolved, fresh) {
-			affected = append(affected, paths[from])
+			affected = append(affected, walked)
 		}
 	}
 	sort.Strings(affected)

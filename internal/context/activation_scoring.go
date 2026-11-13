@@ -298,21 +298,38 @@ func (ae *ActivationEngine) computeDependencyScore(v factView) float64 {
 	factStr := v.key
 	for _, focusPath := range ae.state.FocusedPaths {
 		if strings.Contains(factStr, focusPath) {
-			// Check if any symbols in this file are called by other symbols
-			for symbol, callees := range ae.symbolGraph {
-				if strings.Contains(symbol, focusPath) {
-					score += float64(len(callees)) * 2.0 // Points for outgoing calls
-				}
-				for _, callee := range callees {
-					if strings.Contains(callee, focusPath) {
-						score += 3.0 // Points for incoming calls
-					}
-				}
-			}
+			score += ae.focusSpreadFor(focusPath)
 		}
 	}
 
 	return math.Min(score, 40.0) // Cap at 40
+}
+
+// focusSpreadFor is the symbol-graph share of a fact that names focusPath:
+// two points per outgoing edge of every node under the path and three per
+// edge into it. Walking the whole graph for every fact that named a focused
+// path made scoring cost facts times graph edges; the walk is the same for
+// each of them. Caller holds ae.mu for writing (scoring does).
+func (ae *ActivationEngine) focusSpreadFor(focusPath string) float64 {
+	if spread, ok := ae.focusSpread[focusPath]; ok {
+		return spread
+	}
+	spread := 0.0
+	for symbol, callees := range ae.symbolGraph {
+		if strings.Contains(symbol, focusPath) {
+			spread += float64(len(callees)) * 2.0
+		}
+		for _, callee := range callees {
+			if strings.Contains(callee, focusPath) {
+				spread += 3.0
+			}
+		}
+	}
+	if ae.focusSpread == nil {
+		ae.focusSpread = make(map[string]float64)
+	}
+	ae.focusSpread[focusPath] = spread
+	return spread
 }
 
 // computeCampaignScore adds campaign-specific activation boost.

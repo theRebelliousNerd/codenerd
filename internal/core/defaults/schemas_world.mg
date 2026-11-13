@@ -69,6 +69,24 @@ Decl symbol_graph(SymbolID, Type, Visibility, DefinedAt, Signature) bound [/stri
 # SerializationOrder: 13
 Decl dependency_link(CallerID, CalleeID, ImportPath) bound [/string, /string, /string].
 
+# The import graph, in factors (internal/world/dependency_links.go).
+# dependency_link above holds only the import statements as written: a
+# "pkg:"/"mod:"/"crate:" token and the import path. What a file depends on in
+# the workspace is two small relations a rule joins:
+#
+#   file_unit(File, Unit)     File belongs to the importable Unit: a Go file's
+#                             package import path, or the file itself for a
+#                             language whose import names one file.
+#   import_unit(File, Unit)   File imports Unit.
+#
+#   X depends on the file Y  :-  import_unit(X, U), file_unit(Y, U).
+#
+# Lead with the side that is bound: the two relations are a few thousand and a
+# few tens of thousands of rows; their product, which used to be stored as
+# dependency_link and file_imports rows, was 225k on this repository.
+Decl file_unit(File, Unit) bound [/string, /string].
+Decl import_unit(File, Unit) bound [/string, /string].
+
 # Import-graph measurements (internal/world/import_cycles.go).
 # imports_project_file(File): File has a resolved in-workspace import edge.
 Decl imports_project_file(File) bound [/string].

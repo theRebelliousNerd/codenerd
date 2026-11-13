@@ -20,9 +20,9 @@ Constitutional `permitted(...)` is **not** implemented here. Side-effect tools t
 
 ### Import resolution follows admitted workspace membership
 
-An unchanged importer must acquire and retire resolved `dependency_link`,
-`file_imports` and `imports_project_file` facts when an admitted target is added
-or deleted. Compare incremental application and persisted owner rows with a fresh
+An unchanged importer must acquire and retire its `import_unit` and
+`imports_project_file` facts when the unit it names gains its first admitted
+member or loses its last, and every admitted member carries its `file_unit` row. Compare incremental application and persisted owner rows with a fresh
 full scan, using independent correct baselines for addition and deletion. Raw
 external import tokens remain external; test-only and excluded Go files do not
 become package targets, and unrelated edits do not invalidate an importer.

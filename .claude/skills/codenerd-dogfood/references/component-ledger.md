@@ -6738,3 +6738,29 @@ Open: a handful of retracted turn facts cost the incremental evaluator a second
 or more to re-derive; the turn path scores every catch-all fact in Go; expert
 knowledge bases ingest mirrored agent files several times; the edge-case
 detector's dependents-of-a-file match by base name and never match Go files.
+
+## The import graph in factors, by hand (2026-11-13; codeNERD not run)
+
+Hand-edited: the change spans the scanner, the schema, eleven policy files and
+every Go reader of the relation, which is past what one `nerd fix` brief lands.
+
+- Measured first: of the 582k fast-depth world rows the kernel loads on this
+  repository, 451k were one relation stored twice -- a row from each importer to
+  every file of the package it imports (`dependency_link` file rows and
+  `file_imports`).
+- Now two relations, `import_unit(File, Unit)` and `file_unit(File, Unit)`, joined
+  by every reader with its bound side first. The join is held to the old product
+  by a test that keeps the old resolver as its oracle.
+- A side effect that is a fix: adding a file to a package no longer restages
+  every importer of that package, only a unit's first or last member does.
+- Found on the way: the activation engine walked the whole symbol graph, with a
+  substring test per edge, for every fact that named a focused path. The walk
+  depends only on the path; it is now made once per path per scoring pass.
+
+What caught mistakes: tests in four other packages seeded the old row shape or
+asserted that a file-to-file row was absent, which the new shape satisfies
+vacuously. An absence assertion has to be re-read when the shape it names goes
+away.
+
+Not measured: boot time and live memory on the real workspace after the change
+(codeNERD was not run; the cache restages on the next scan).

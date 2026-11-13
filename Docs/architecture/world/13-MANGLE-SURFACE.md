@@ -18,6 +18,8 @@ file_topology
 directory
 symbol_graph
 dependency_link
+file_unit
+import_unit
 code_defines
 code_calls
 assigns

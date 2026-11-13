@@ -10,7 +10,7 @@ import (
 )
 
 // Producer pins for the test-impact file facts (test_impact_facts.go): the
-// fast scanner asserts file_package, is_test_file and file_imports for Go
+// fast scanner asserts file_package, is_test_file, import_unit and file_unit for Go
 // files, spelled exactly as test_impact.mg joins them. Same-directory
 // grouping joins the file_dir companion (pinned in fs_test.go), not a
 // materialised pair relation. The chain tests prove the rules fire; these
@@ -47,7 +47,7 @@ func hasFact(facts []Fact, pred string, args ...string) bool {
 // TestScanner_WhenGoWorkspace_ShouldEmitTestImpactFileFacts is the producer
 // pin for all three predicates on one workspace: package rows for every Go
 // file (test files included), the test-file mark, and the resolved import
-// edge as file_imports.
+// edge as import_unit and file_unit.
 func TestScanner_WhenGoWorkspace_ShouldEmitTestImpactFileFacts(t *testing.T) {
 	root := t.TempDir()
 	writeWorkspaceFile(t, root, "go.mod", "module example.com/app\n\ngo 1.26\n")
@@ -77,17 +77,32 @@ func TestScanner_WhenGoWorkspace_ShouldEmitTestImpactFileFacts(t *testing.T) {
 		t.Errorf("is_test_file should mark exactly p/app_test.go, got %v", byPred["is_test_file"])
 	}
 
-	if !hasFact(byPred["file_imports"], "file_imports", "cmd/main.go", "q/lib.go") {
-		t.Errorf("missing file_imports(cmd/main.go, q/lib.go); got %v", byPred["file_imports"])
+	// The import edge is emitted in factors: the importer names q's unit and
+	// q's file is that unit's member.
+	const qUnit = "example.com/app/q"
+	if !hasFact(byPred["import_unit"], "import_unit", "cmd/main.go", qUnit) {
+		t.Errorf("missing import_unit(cmd/main.go, %s); got %v", qUnit, byPred["import_unit"])
 	}
-	for _, f := range byPred["file_imports"] {
+	if !hasFact(byPred["file_unit"], "file_unit", "q/lib.go", qUnit) {
+		t.Errorf("missing file_unit(q/lib.go, %s); got %v", qUnit, byPred["file_unit"])
+	}
+	units := make(map[string]string)
+	for _, f := range byPred["file_unit"] {
+		file, _ := f.Args[0].(string)
+		unit, _ := f.Args[1].(string)
+		units[file] = unit
+		if file == "p/app_test.go" {
+			t.Errorf("a test file is a member of no importable unit, got %v", f.Args)
+		}
+	}
+	for _, f := range byPred["import_unit"] {
 		from, _ := f.Args[0].(string)
-		to, _ := f.Args[1].(string)
-		if from == to {
-			t.Errorf("file_imports self-edge %v", f.Args)
+		unit, _ := f.Args[1].(string)
+		if units[from] == unit {
+			t.Errorf("import_unit self-edge %v", f.Args)
 		}
 		if from == "p/app_test.go" {
-			t.Errorf("stdlib-only test file gained a file_imports edge %v", f.Args)
+			t.Errorf("stdlib-only test file gained an import_unit edge %v", f.Args)
 		}
 	}
 }
@@ -170,7 +185,7 @@ func TestScanner_WhenIncremental_ShouldMatchFullScanFileFacts(t *testing.T) {
 }
 
 // TestFileImports_WhenImportRemoved_ShouldRetract mirrors the dependency_link
-// retraction pin: file_imports rows live in the importer's per-file fact set,
+// retraction pin: import_unit rows live in the importer's per-file fact set,
 // so deleting the import retracts the edge instead of leaving it to accuse
 // the next edit forever.
 func TestFileImports_WhenImportRemoved_ShouldRetract(t *testing.T) {
@@ -197,12 +212,12 @@ func TestFileImports_WhenImportRemoved_ShouldRetract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	retracted := factsByPredicate(delta.RetractFacts)["file_imports"]
-	if !hasFact(retracted, "file_imports", "cmd/main.go", "q/lib.go") {
-		t.Errorf("file_imports edge not retracted when its import was deleted; retractions=%v", retracted)
+	retracted := factsByPredicate(delta.RetractFacts)["import_unit"]
+	if !hasFact(retracted, "import_unit", "cmd/main.go", "example.com/app/q") {
+		t.Errorf("import_unit edge not retracted when its import was deleted; retractions=%v", retracted)
 	}
-	if fresh := factsByPredicate(delta.NewFacts)["file_imports"]; len(fresh) != 0 {
-		t.Errorf("file_imports re-asserted although the import is gone: %v", fresh)
+	if fresh := factsByPredicate(delta.NewFacts)["import_unit"]; len(fresh) != 0 {
+		t.Errorf("import_unit re-asserted although the import is gone: %v", fresh)
 	}
 }
 
@@ -257,7 +272,7 @@ func TestParseGoHeader(t *testing.T) {
 
 // TestGroupFactsByPath_WhenTestImpactFacts_ShouldFileUnderArgZero pins the
 // per-file ownership the incremental retraction depends on: every test-impact
-// file fact names its producing file first, so the file_imports edge files
+// file fact names its producing file first, so the import_unit edge files
 // under its importer and retracts with it.
 func TestGroupFactsByPath_WhenTestImpactFacts_ShouldFileUnderArgZero(t *testing.T) {
 	facts := []Fact{
@@ -265,14 +280,14 @@ func TestGroupFactsByPath_WhenTestImpactFacts_ShouldFileUnderArgZero(t *testing.
 		{Predicate: "file_topology", Args: []any{"p/b_test.go", "h2", "/go", int64(2), "/true"}},
 		{Predicate: "file_package", Args: []any{"p/a.go", "p"}},
 		{Predicate: "is_test_file", Args: []any{"p/b_test.go"}},
-		{Predicate: "file_imports", Args: []any{"p/b_test.go", "p/a.go"}},
+		{Predicate: "import_unit", Args: []any{"p/b_test.go", "example.com/app/p"}},
 	}
 	out := groupFactsByPath(facts)
 	if got := len(out["p/a.go"]); got != 2 {
 		t.Errorf("p/a.go owns %d facts, want 2 (topology, file_package): %v", got, out["p/a.go"])
 	}
 	if got := len(out["p/b_test.go"]); got != 3 {
-		t.Errorf("p/b_test.go owns %d facts, want 3 (topology, is_test_file, file_imports): %v",
+		t.Errorf("p/b_test.go owns %d facts, want 3 (topology, is_test_file, import_unit): %v",
 			got, out["p/b_test.go"])
 	}
 }

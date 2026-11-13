@@ -223,8 +223,9 @@ refused as in a serial load.
 Three world-model rules were reordered to start from their smallest relation:
 `doc_exists_for` goes through `dir_has_doc`
 (`internal/core/defaults/schemas_shards.mg:411`), `dependent_count` reuses
-`intelligence_dependent_count`, and `intelligence_file_depends` starts from
-`file_topology`. Their results are pinned against the earlier shapes by the
+`intelligence_dependent_count`, which counts a unit's importers once
+(`intelligence_unit_importers`, `internal/core/defaults/policy/intelligence.mg:105`)
+and gives that count to each member file. Their results are pinned against the earlier shapes by the
 `TestWorldRuleShapes_*` tests (`internal/core/world_rule_shapes_test.go:86`,
 `:93`).
 
@@ -234,9 +235,14 @@ The world shard holds every world fact in RAM (about 1.06 GB live for a
 600k-fact workspace, each EDB fact held roughly four times: Go fact, dedupe
 index, remembered atom, indexed store). The north star asks for evidence that a
 turn does not reason over to stay recoverable in the store and enter the kernel
-on relevance. Every world predicate is read by at least one rule today
-(`dependency_link` by 17 rule heads), so this needs those rules restated over a
-demand-loaded relation, not a cache. It is the largest open memory cost.
+on relevance. Every world predicate is read by at least one rule today, so
+this needs those rules restated over a demand-loaded relation, not a cache. It
+is the largest open memory cost. The largest single relation is gone: the
+import graph is held in factors (`file_unit`, `import_unit`;
+`Docs/architecture/world/IMPLEMENTED_SPEC.md`, "The import graph is stored in
+factors"), which removed the 451k file-to-file rows that were 78% of the
+fast-depth load. The live-memory figure above predates that and has not been
+re-measured.
 
 
 ## System facts feed the outside world in (kernel_sysfacts.go)

@@ -188,20 +188,12 @@ func (k *RealKernel) findPremises(ctx context.Context, fact mangle.Fact, ruleNam
 
 	switch ruleName {
 	case "transitive_impact":
-		// impacted(X) :- dependency_link(X, Y, _), modified(Y).
-		// We look for dependency_link facts where Arg0 matches our Arg0
+		// impacted(X) :- modified(Y), file_unit(Y, U), import_unit(X, U).
+		// The premises on X's side are the units X imports.
 		if len(fact.Args) > 0 {
-			// The rows that start at this fact's first argument, from the
-			// argument index when it is a string (the scan copied every import
-			// edge of the workspace for each fact explained).
-			query := "dependency_link"
-			if s, ok := fact.Args[0].(string); ok && !strings.HasPrefix(s, "/") {
-				query = BoundQuery("dependency_link", 3, map[int]any{0: s})
-			}
-			deps, _ := k.Query(query)
-			for _, d := range deps {
-				// Filter to facts where first arg matches
-				if len(d.Args) > 0 && types.ExtractString(d.Args[0]) == types.ExtractString(fact.Args[0]) {
+			if importer, ok := fact.Args[0].(string); ok && !strings.HasPrefix(importer, "/") {
+				deps, _ := k.QueryBound("import_unit", 2, map[int]any{0: importer})
+				for _, d := range deps {
 					premises = append(premises, convertCoreFactToMangle(d))
 				}
 			}

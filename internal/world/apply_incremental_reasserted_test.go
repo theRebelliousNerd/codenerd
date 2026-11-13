@@ -19,17 +19,23 @@ func TestApplyIncrementalResult_UnchangedFactsAreNotRetracted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	link := func(from, to string) core.Fact {
-		return core.Fact{Predicate: "dependency_link", Args: []any{from, to, "import"}}
+	// The import graph in factors: each importer imports the unit, and each
+	// file of the package is a member of it (schemas_world.mg).
+	const unit = "example.test/m/core"
+	imports := func(from, unit string) core.Fact {
+		return core.Fact{Predicate: "import_unit", Args: []any{from, unit}}
+	}
+	member := func(file string) core.Fact {
+		return core.Fact{Predicate: "file_unit", Args: []any{file, unit}}
 	}
 	topo := func(path string) core.Fact {
 		return core.Fact{Predicate: "file_topology", Args: []any{path, "h", types.MangleAtom("/go"), int64(1), types.MangleAtom("/false")}}
 	}
 	var old []core.Fact
 	for i := 0; i < 2000; i++ {
-		old = append(old, topo(fmt.Sprintf("f%d.go", i)), link(fmt.Sprintf("f%d.go", i), "core.go"))
+		old = append(old, topo(fmt.Sprintf("f%d.go", i)), imports(fmt.Sprintf("f%d.go", i), unit))
 	}
-	old = append(old, topo("core.go"), link("f0.go", "gone.go"))
+	old = append(old, topo("core.go"), member("core.go"), imports("f0.go", "example.test/m/gone"))
 	if err := kernel.LoadFacts(old); err != nil {
 		t.Fatal(err)
 	}
@@ -37,20 +43,18 @@ func TestApplyIncrementalResult_UnchangedFactsAreNotRetracted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Every importer was rescanned: all its facts are retracted and re-emitted,
-	// plus one new edge each to the package's new file; one edge disappeared.
+	// Every importer was rescanned: all its facts are retracted and re-emitted;
+	// one import disappeared, and the package gained a file, which is that
+	// file's own row and no importer's.
 	kept := old[:len(old)-1]
-	res := &IncrementalResult{RetractFacts: append(slices.Clone(kept), link("f0.go", "gone.go"))}
+	res := &IncrementalResult{RetractFacts: append(slices.Clone(kept), imports("f0.go", "example.test/m/gone"))}
 	res.NewFacts = slices.Clone(kept)
-	res.NewFacts = append(res.NewFacts, topo("new.go"))
-	for i := 0; i < 2000; i++ {
-		res.NewFacts = append(res.NewFacts, link(fmt.Sprintf("f%d.go", i), "new.go"))
-	}
+	res.NewFacts = append(res.NewFacts, topo("new.go"), member("new.go"))
 	if err := ApplyIncrementalResult(kernel, res); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := kernel.Query("dependency_link")
+	got, err := kernel.Query("import_unit")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,12 +66,12 @@ func TestApplyIncrementalResult_UnchangedFactsAreNotRetracted(t *testing.T) {
 		edges = append(edges, fmt.Sprint(f.Args[0], "->", f.Args[1]))
 	}
 	sort.Strings(edges)
-	if len(edges) != 4000 {
-		t.Fatalf("kernel holds %d dependency_link facts, want 4000 (2000 to core.go, 2000 to new.go)", len(edges))
+	if len(edges) != 2000 {
+		t.Fatalf("kernel holds %d import_unit facts, want 2000 (one per importer)", len(edges))
 	}
 	for _, e := range edges {
-		if e == "f0.go->gone.go" {
-			t.Fatal("the edge the rescan no longer emits was not retracted")
+		if e == "f0.go->example.test/m/gone" {
+			t.Fatal("the import the rescan no longer emits was not retracted")
 		}
 	}
 	counts, err := kernel.Query("dependent_count")

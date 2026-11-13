@@ -103,18 +103,16 @@ func assertCanonicalScan(t *testing.T, m Model, ws string) {
 		}
 	}
 
-	deps, err := m.kernel.Query("dependency_link")
-	if err != nil {
-		t.Fatal(err)
-	}
-	resolved := false
-	for _, f := range deps {
-		if types.ExtractString(f.Args[0]) == "internal/a/a.go" && types.ExtractString(f.Args[1]) == "internal/b/b.go" {
-			resolved = true
+	// The resolved import is held in factors: a.go imports b's unit, and b.go
+	// is that unit's member, both under their canonical paths.
+	const unit = "example.com/ws/internal/b"
+	for _, q := range []string{
+		`import_unit("internal/a/a.go", "` + unit + `")`,
+		`file_unit("internal/b/b.go", "` + unit + `")`,
+	} {
+		if rows, err := m.kernel.Query(q); err != nil || len(rows) != 1 {
+			t.Errorf("import of internal/b was not resolved: %s = %v, err=%v", q, rows, err)
 		}
-	}
-	if !resolved {
-		t.Errorf("import of internal/b was not resolved into a file->file dependency_link; edges: %v", deps)
 	}
 
 	rows, _, err := m.localDB.LoadWorldFactsForFile("internal/a/a.go", "fast")
@@ -129,8 +127,8 @@ func assertCanonicalScan(t *testing.T, m Model, ws string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if !edges["internal/a/a.go /depends_on internal/b/b.go"] {
-		t.Errorf("knowledge graph lacks a joinable /depends_on edge; edges: %v", edges)
+	if !edges["internal/a/a.go /imports "+unit] || !edges["internal/b/b.go /member_of "+unit] {
+		t.Errorf("knowledge graph lacks the joinable /imports and /member_of edges; edges: %v", edges)
 	}
 	if !edges["func:Run /defined_in internal/a/a.go"] {
 		t.Errorf("knowledge graph lacks the /defined_in edge for Run; edges: %v", edges)

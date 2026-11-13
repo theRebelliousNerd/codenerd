@@ -29,25 +29,34 @@ import (
 // therefore dormant, while dependency_link sat in the world replace-set
 // retracting and re-adding facts no rule could use.
 //
-// Resolution turns those tokens into real file->file edges for imports that
-// land inside the workspace. External imports keep their token form: they are
-// still a truthful record of a third-party dependency and no rule joins them.
+// Resolution gives those tokens something to join with, without naming a
+// path that is not one. Every source file belongs to an importable UNIT and
+// every in-workspace import names a unit:
 //
-// Granularity is deliberately package-level for Go: an importer gets an edge to
-// every non-test file of the imported package. That over-approximates (a change
-// to any file of a package marks its importers impacted) which is the safe
-// direction for a predicate that gates writes — the same reasoning as
-// test_file_for's conservative pairing. Languages whose imports name a single
-// file (Python modules, JS/TS relative specifiers, Rust modules) resolve
-// exactly, one edge per import.
+//	file_unit(File, Unit)      File belongs to Unit   (the member's own fact)
+//	import_unit(File, Unit)    File imports Unit      (the importer's own fact)
 //
-// There is no local cap on the expansion. This repo is on the order of 46k
-// file->file edges, and a fixed 50_000 used to drop the sorted tail before
-// the kernel saw it: impact rules then under-reported, which is the unsafe
-// direction for a write gate, and the only record was a log line. The kernel's
-// EDB ceiling is core_limits.max_facts_in_kernel, enforced in
-// addFactIfNewLocked, which rejects the fact that does not fit and returns
-// the rejection. That ceiling is the bound.
+// A Go file's unit is its package: the import path that reaches its directory.
+// A file of a language whose import names one file (a Python module, a JS/TS
+// relative specifier, a Rust module) is its own unit. "X depends on the file
+// Y" is then a join the rules write themselves:
+//
+//	import_unit(X, U), file_unit(Y, U)
+//
+// Granularity is still package-level for Go: importing a package depends on
+// every non-test file of it, which over-approximates in the safe direction for
+// a predicate that gates writes.
+//
+// This used to be stored as the product: one dependency_link row, and one
+// file_imports row beside it, from each importer to EVERY file of the imported
+// package. The product grows with files times package size -- 46k rows when it
+// was introduced, 225k of each on this repository a few months later, 78% of
+// the world facts the kernel loads -- and it has to be rebuilt for every
+// importer when a package gains a file (652 files rescanned for one new file
+// in internal/core). The factors are about 20k import rows and one row per
+// source file, and a new file is one new row. External imports keep only their
+// token form in dependency_link: a truthful record of a third-party dependency
+// that no rule joins.
 
 // repoFileIndex maps the workspace file set into the shapes import resolution
 // needs. Built once per scan; canonical (workspace-relative, slash) paths only.
@@ -106,8 +115,9 @@ func ReadGoModulePath(root string) string {
 	return ""
 }
 
-// ResolveDependencyLinks derives in-workspace file->file import edges from the
-// raw import facts in facts. The workspace file set is taken from the
+// ResolveDependencyLinks derives the import-graph rows (import_unit,
+// imports_project_file, and file_unit for each file with a file_topology row)
+// from the facts of a scan. The workspace file set is taken from the
 // file_topology facts in facts, so this is the full-scan entry point; the
 // incremental scanner uses resolveDependencyLinksWithIndex because its fact
 // slice only covers changed files.
@@ -130,13 +140,17 @@ func ResolveDependencyLinks(root string, facts []core.Fact) []core.Fact {
 // has to resolve, so the index must span every file the kernel knows, not just
 // the ones whose facts are in the slice.
 func ResolveDependencyLinksAgainst(root string, workspaceFiles []string, facts []core.Fact) []core.Fact {
-	return resolveDependencyLinksWithIndex(newRepoFileIndex(root, workspaceFiles), facts)
+	idx := newRepoFileIndex(root, workspaceFiles)
+	return append(resolveDependencyLinksWithIndex(idx, facts), fileUnitFacts(idx, facts)...)
 }
 
+// resolveDependencyLinksWithIndex returns the importer-owned rows for the raw
+// import facts in facts: one import_unit row per in-workspace unit a file
+// imports, and imports_project_file once per file that has any.
 func resolveDependencyLinksWithIndex(idx *repoFileIndex, facts []core.Fact) []core.Fact {
-	type edge struct{ from, to, imp string }
+	type edge struct{ from, unit string }
 	var edges []edge
-	seen := make(map[string]struct{})
+	seen := make(map[edge]struct{})
 
 	for _, f := range facts {
 		if f.Predicate != "dependency_link" || len(f.Args) < 3 {
@@ -154,36 +168,29 @@ func resolveDependencyLinksWithIndex(idx *repoFileIndex, facts []core.Fact) []co
 		if !ok || imp == "" {
 			continue
 		}
-		for _, target := range idx.resolve(from, token, imp) {
-			if target == from {
+		for _, unit := range idx.importedUnits(from, token, imp) {
+			e := edge{from: from, unit: unit}
+			if _, dup := seen[e]; dup {
 				continue
 			}
-			key := from + "\x00" + target
-			if _, dup := seen[key]; dup {
-				continue
-			}
-			seen[key] = struct{}{}
-			edges = append(edges, edge{from: from, to: target, imp: imp})
+			seen[e] = struct{}{}
+			edges = append(edges, e)
 		}
 	}
 
-	// Sorted so a full scan and an incremental scan emit the same edges in the
+	// Sorted so a full scan and an incremental scan emit the same rows in the
 	// same order. Both paths share this function; an unstable order would make
 	// their replace-sets disagree about a fact that both derived.
 	sort.Slice(edges, func(i, j int) bool {
 		if edges[i].from != edges[j].from {
 			return edges[i].from < edges[j].from
 		}
-		return edges[i].to < edges[j].to
+		return edges[i].unit < edges[j].unit
 	})
 
-	// file_imports rides the same resolved edge: test_impact.mg joins
-	// file_imports(TestFile, SourceFile) against code_element's file slot,
-	// and this resolution is the single definition of "file imports file" in
-	// the world model. Same edges, so full and incremental scans agree exactly.
 	// imports_project_file marks each importer once (import_cycles.go): a
-	// per-file measurement, stored and retracted with the file's edges.
-	out := make([]core.Fact, 0, 2*len(edges))
+	// per-file measurement, stored and retracted with the file's imports.
+	out := make([]core.Fact, 0, len(edges)+len(edges)/4)
 	for i, e := range edges {
 		if i == 0 || edges[i-1].from != e.from {
 			out = append(out, core.Fact{
@@ -192,15 +199,103 @@ func resolveDependencyLinksWithIndex(idx *repoFileIndex, facts []core.Fact) []co
 			})
 		}
 		out = append(out, core.Fact{
-			Predicate: "dependency_link",
-			Args:      []any{e.from, e.to, e.imp},
-		})
-		out = append(out, core.Fact{
-			Predicate: "file_imports",
-			Args:      []any{e.from, e.to},
+			Predicate: "import_unit",
+			Args:      []any{e.from, e.unit},
 		})
 	}
 	return out
+}
+
+// fileUnitFact is the member-owned row for file: the unit it belongs to. A
+// file that no import can name -- a Go test file, a document, a file of a
+// language the resolver does not read -- belongs to none.
+func fileUnitFact(idx *repoFileIndex, file string) (core.Fact, bool) {
+	unit := idx.unitOfFile(types.SlashClean(file))
+	if unit == "" {
+		return core.Fact{}, false
+	}
+	return core.Fact{Predicate: "file_unit", Args: []any{types.SlashClean(file), unit}}, true
+}
+
+// fileUnitFacts is fileUnitFact for every file that has a file_topology row
+// in facts: the files a scan has in hand.
+func fileUnitFacts(idx *repoFileIndex, facts []core.Fact) []core.Fact {
+	var out []core.Fact
+	for _, f := range facts {
+		if f.Predicate != "file_topology" || len(f.Args) == 0 {
+			continue
+		}
+		file, ok := f.Args[0].(string)
+		if !ok || file == "" {
+			continue
+		}
+		if row, has := fileUnitFact(idx, file); has {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+// goUnitOfDir is the import path that reaches the Go package in dir: the
+// module path joined with the directory, or the bare directory when go.mod
+// names no module (the form resolveGoPackage accepts then).
+func (idx *repoFileIndex) goUnitOfDir(dir string) string {
+	dir = types.SlashClean(dir)
+	switch {
+	case idx.goModule == "":
+		return dir
+	case dir == "" || dir == ".":
+		return idx.goModule
+	default:
+		return idx.goModule + "/" + dir
+	}
+}
+
+// exactUnitExtensions are the languages whose import names one file, so the
+// file is its own unit.
+var exactUnitExtensions = map[string]struct{}{
+	".py": {}, ".js": {}, ".jsx": {}, ".ts": {}, ".tsx": {}, ".mjs": {}, ".cjs": {}, ".rs": {},
+}
+
+// unitOfFile is the unit a canonical file path belongs to, "" for none.
+func (idx *repoFileIndex) unitOfFile(file string) string {
+	if strings.HasSuffix(file, ".go") {
+		if strings.HasSuffix(file, "_test.go") {
+			return ""
+		}
+		return idx.goUnitOfDir(canonicalDir(file))
+	}
+	if _, exact := exactUnitExtensions[path.Ext(file)]; exact {
+		return file
+	}
+	return ""
+}
+
+// importedUnits returns the in-workspace units an import token refers to, nil
+// when the import leaves the workspace. A Go import is its package's unit when
+// that package has files here; any other import is the file it resolves to.
+// A file never imports itself.
+func (idx *repoFileIndex) importedUnits(from, token, imp string) []string {
+	if strings.HasPrefix(token, "pkg:") {
+		members := idx.resolveGoPackage(imp)
+		if len(members) == 0 {
+			return nil
+		}
+		unit := idx.unitOfFile(members[0])
+		// A member that names its own package (not Go that compiles, but a
+		// scan sees whatever is on disk) would join to itself.
+		if unit == idx.unitOfFile(from) {
+			return nil
+		}
+		return []string{unit}
+	}
+	var units []string
+	for _, target := range idx.resolve(from, token, imp) {
+		if target != from {
+			units = append(units, target)
+		}
+	}
+	return units
 }
 
 // resolve returns the workspace files an import token refers to, or nil when

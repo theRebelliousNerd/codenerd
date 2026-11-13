@@ -16,9 +16,10 @@ import (
 // the production rules to the formulations they replaced, written here under
 // other names, on a world with the edge cases each one has.
 const replacedWorldRules = `
+Decl old_file_edge(Importer, File, Kind) bound [/string, /string, /string].
 Decl old_dependent_count(File, N) bound [/string, /number].
 old_dependent_count(File, N) :-
-    dependency_link(Importer, File, _),
+    old_file_edge(Importer, File, _),
     file_topology(File, _, _, _, _)
     |> do fn:group_by(File), let N = fn:count().
 
@@ -38,14 +39,28 @@ func worldShapeKernel(t *testing.T) *RealKernel {
 	}
 	facts := []Fact{
 		topo("a.go"), topo("b.go"), topo("c.go"), topo("pkg/d.go"),
-		// Two kinds of edge between the same pair count once; an edge to a
-		// file the world does not hold counts nowhere.
-		{Predicate: "dependency_link", Args: []any{"a.go", "b.go", "import"}},
-		{Predicate: "dependency_link", Args: []any{"a.go", "b.go", "call"}},
-		{Predicate: "dependency_link", Args: []any{"c.go", "b.go", "import"}},
-		{Predicate: "dependency_link", Args: []any{"b.go", "pkg/d.go", "import"}},
-		{Predicate: "dependency_link", Args: []any{"a.go", "missing.go", "import"}},
-		{Predicate: "dependency_link", Args: []any{"pkg/d.go", "a.go", "import"}},
+	}
+	// The old formulation read one row per pair of files; production reads
+	// the same edge in factors (schemas_world.mg), each file its own unit
+	// here. Two kinds of edge between the same pair count once; an edge to a
+	// file the world does not hold counts nowhere, because that file is a
+	// member of no unit.
+	held := map[string]bool{"a.go": true, "b.go": true, "c.go": true, "pkg/d.go": true}
+	for _, e := range [][3]string{
+		{"a.go", "b.go", "import"},
+		{"a.go", "b.go", "call"},
+		{"c.go", "b.go", "import"},
+		{"b.go", "pkg/d.go", "import"},
+		{"a.go", "missing.go", "import"},
+		{"pkg/d.go", "a.go", "import"},
+	} {
+		facts = append(facts,
+			Fact{Predicate: "old_file_edge", Args: []any{e[0], e[1], e[2]}},
+			Fact{Predicate: "import_unit", Args: []any{e[0], "unit:" + e[1]}},
+		)
+		if held[e[1]] {
+			facts = append(facts, Fact{Predicate: "file_unit", Args: []any{e[1], "unit:" + e[1]}})
+		}
 	}
 	// Directory "doc" holds a markdown file (which documents itself), "src"
 	// holds none, "mixed" holds two markdown files.

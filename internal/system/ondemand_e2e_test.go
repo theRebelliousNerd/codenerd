@@ -88,7 +88,8 @@ func TestWorldRefreshAfterWriteUsesBootScanner(t *testing.T) {
 	assertRows(`file_topology("main.go", H, /go, T, /false)`, 1)
 	assertRows(`symbol_graph("func:After", /function, /public, "main.go", S)`, 1)
 	assertRows(`symbol_graph("func:Before", K, V, F, S)`, 0)
-	assertRows(`dependency_link("main.go", "lib/lib.go", K)`, 1)
+	assertRows(`import_unit("main.go", "example.com/app/lib")`, 1)
+	assertRows(`file_unit("lib/lib.go", "example.com/app/lib")`, 1)
 	assertRows(`file_in_project("main.go")`, 1)
 	assertRows(`symbol_graph("func:TestBefore", /function, /public, "main_test.go", S)`, 1)
 	// The consumer joins the freshly resolved edge to the same canonical key.

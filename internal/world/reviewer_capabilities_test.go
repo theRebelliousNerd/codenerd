@@ -66,20 +66,23 @@ func TestReviewerCapabilities(t *testing.T) {
 		{Predicate: "git_history", Args: []any{"linkedB.go", "c5", "Auth", int64(2), "m"}},
 		{Predicate: "git_history", Args: []any{"linkedA.go", "c6", "Auth", int64(3), "m"}},
 		{Predicate: "git_history", Args: []any{"linkedB.go", "c6", "Auth", int64(3), "m"}},
-		{Predicate: "dependency_link", Args: []any{"linkedB.go", "linkedA.go", "codenerd/linked"}},
+		{Predicate: "import_unit", Args: []any{"linkedB.go", "codenerd/linked"}},
+		{Predicate: "file_unit", Args: []any{"linkedA.go", "codenerd/linked"}},
 	}
 
 	// --- Scenario C: Layer Leakage ---
-	// dependency_link is file level, as the world scanner resolves it
-	// (internal/world/dependency_links.go): importer file, imported file,
-	// import path.
+	// The import graph in factors, as the world scanner emits it
+	// (internal/world/dependency_links.go): the importer names a unit, and
+	// the unit's files are its members.
 	setupLayerLeakage := []core.Fact{
 		{Predicate: "symbol_graph", Args: []any{"ID_Lib", "function", "public", "internal/lib/lib.go", "func ID_Lib()"}},
 		{Predicate: "symbol_graph", Args: []any{"ID_App", "function", "public", "cmd/app/main.go", "func ID_App()"}},
-		{Predicate: "dependency_link", Args: []any{"internal/lib/lib.go", "cmd/app/main.go", "codenerd/cmd/app"}},
+		{Predicate: "import_unit", Args: []any{"internal/lib/lib.go", "codenerd/cmd/app"}},
+		{Predicate: "file_unit", Args: []any{"cmd/app/main.go", "codenerd/cmd/app"}},
 		// Near miss: a library importing a library.
 		{Predicate: "symbol_graph", Args: []any{"ID_Lib2", "function", "public", "internal/lib2/lib.go", "func ID_Lib2()"}},
-		{Predicate: "dependency_link", Args: []any{"internal/lib2/lib.go", "internal/lib/lib.go", "codenerd/internal/lib"}},
+		{Predicate: "import_unit", Args: []any{"internal/lib2/lib.go", "codenerd/internal/lib"}},
+		{Predicate: "file_unit", Args: []any{"internal/lib/lib.go", "codenerd/internal/lib"}},
 	}
 
 	// --- Scenario D: Zombie Test ---

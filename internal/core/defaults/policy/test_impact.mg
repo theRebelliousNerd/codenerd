@@ -31,11 +31,10 @@
 #                      mappers emit bare rows only (their refs key on file
 #                      path + parentage the walker cannot reconstruct).
 #
-#   file_imports       WAS: no producer. NOW: the import resolver
-#                      (internal/world/dependency_links.go) emits a
-#                      file_imports row beside every resolved in-workspace
-#                      dependency_link edge, on the full and incremental scan
-#                      paths alike. Test Go files contribute their imports via
+#   import_unit,       The import resolver (internal/world/dependency_links.go)
+#   file_unit          emits the import graph in factors: importer -> unit and
+#                      unit member -> unit, on the full and incremental scan
+#                      paths alike. "TestFile imports SourceFile" is their join. Test Go files contribute their imports via
 #                      a header-only parse (test_impact_facts.go), since the
 #                      fast scans skip them in the tree-sitter walker.
 #
@@ -109,12 +108,13 @@ Decl is_test_function(Ref).
 # Build the direct dependency graph between tests and source code.
 
 # Test depends on source if test imports the source file
-# Reordered: bind TestFile from TestRef, then file_imports joins to SourceFile,
+# Reordered: bind TestFile from TestRef, then import_unit and file_unit join to SourceFile,
 # then code_element binds SourceRef sharing SourceFile.
 test_depends_on(TestRef, SourceRef) :-
     is_test_function(TestRef),
     code_element(TestRef, _, TestFile, _, _),
-    file_imports(TestFile, SourceFile),
+    import_unit(TestFile, Unit),
+    file_unit(SourceFile, Unit),
     code_element(SourceRef, _, SourceFile, _, _).
 
 # Test depends on source if test calls source function
@@ -174,12 +174,13 @@ impacted_test(TestRef) :-
     is_test_function(TestRef).
 
 # A test is impacted if it depends on a modified file (file-level granularity fallback)
-# Reordered: bind TestRef first, get TestFile, then file_imports joins to File,
+# Reordered: bind TestRef first, get TestFile, then import_unit and file_unit join to File,
 # then modified_file confirms File is modified.
 impacted_test(TestRef) :-
     is_test_function(TestRef),
     code_element(TestRef, _, TestFile, _, _),
-    file_imports(TestFile, File),
+    import_unit(TestFile, Unit),
+    file_unit(File, Unit),
     modified_file(File).
 
 

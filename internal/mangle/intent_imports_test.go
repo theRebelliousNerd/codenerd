@@ -15,7 +15,7 @@ func TestIntentImports(t *testing.T) {
 	}
 
 	// Mock schema declarations to support the test.
-	// We include file_imports here, which is normally in schemas_codedom_polyglot.mg
+	// We include import_unit and file_unit here, which are normally in schemas_world.mg
 	mockSchema := `
 # Declarations the routing file no longer carries.
 #
@@ -25,7 +25,8 @@ func TestIntentImports(t *testing.T) {
 # drop them — which means a standalone harness like this one has to supply what
 # the corpus supplies in production.
 Decl file_contains(FilePath, Pattern).
-Decl file_imports(Importer, Imported).
+Decl import_unit(File, Unit).
+Decl file_unit(File, Unit).
 Decl file_dir(Path, Dir).
 Decl turn_verb(Turn, Verb).
 Decl turn_declared_check(Turn).
@@ -56,10 +57,12 @@ Decl next_action(Action).
 			{"user_intent", []any{"intent1", "/command", "/fix", targetFile, ""}},
 
 			// main.go imports helper.go
-			{"file_imports", []any{targetFile, importedFile}},
+			{"import_unit", []any{targetFile, "example.com/m/helper"}},
+			{"file_unit", []any{importedFile, "example.com/m/helper"}},
 
 			// Near miss: an import edge of some other file.
-			{"file_imports", []any{"other.go", "unrelated.go"}},
+			{"import_unit", []any{"other.go", "example.com/m/unrelated"}},
+			{"file_unit", []any{"unrelated.go", "example.com/m/unrelated"}},
 
 			// Every file exists
 			{"file_exists", []any{targetFile}},
@@ -68,9 +71,9 @@ Decl next_action(Action).
 		}
 
 		// context_priority(Path, 50) :- user_intent(_, _, _, Target, _),
-		//     file_imports(Target, Path), file_exists(Path).
-		// The rule reads file_imports with Target bound; there is no
-		// materialized copy of the whole import relation.
+		//     import_unit(Target, Unit), file_unit(Path, Unit), file_exists(Path).
+		// The rule reads the import graph with Target bound; there is no
+		// materialized copy of the whole file-to-file relation.
 
 		result := evaluateAndQuery(t, program, facts, "context_priority")
 

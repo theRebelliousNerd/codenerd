@@ -13,7 +13,8 @@ import (
 //
 // test_impact.mg's chain (test_depends_on -> impacted_test -> coverage_gap ->
 // test_priority) joins file-level predicates the world scanners never
-// produced: file_package, is_test_file and file_imports. W1
+// produced: file_package, is_test_file and the import edge (import_unit and
+// file_unit, in dependency_links.go). W1
 // (commit b80adca9) wired is_test_function and the call graph; this file wires
 // the rest, for Go files, in the fast scanner (full and incremental paths).
 // Same-directory grouping joins the linear file_dir companion instead of a
@@ -56,7 +57,7 @@ func parseGoHeader(content []byte) (pkg string, imports []string, err error) {
 // goTestFileHeaderFacts emits what the tree-sitter walker would emit for a Go
 // file if the fast scanners did not skip test files: the file_package row and
 // the raw pkg: import tokens that resolveDependencyLinksWithIndex turns into
-// in-workspace edges (and file_imports rows beside them).
+// import_unit rows.
 //
 // Non-test files do not come through here: ParseGo's package_clause branch
 // emits their file_package row and its import_spec branch their raw tokens,

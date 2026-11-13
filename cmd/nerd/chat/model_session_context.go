@@ -487,31 +487,47 @@ func (m *Model) queryDependencyContext(files []string) []string {
 			}
 		}
 		emitted := make(map[string]bool)
-		for pos := range 2 {
-			for _, spelling := range spellings {
-				results, err := core.BoundRows(m.kernel, "dependency_link", 3, map[int]any{pos: spelling})
+		emit := func(line string) {
+			if !emitted[line] {
+				emitted[line] = true
+				deps = append(deps, line)
+			}
+		}
+		for _, spelling := range spellings {
+			// What the file imports: its import statements, as written.
+			imports, err := core.BoundRows(m.kernel, "dependency_link", 3, map[int]any{0: spelling})
+			if err != nil {
+				return deps
+			}
+			for _, fact := range imports {
+				if len(fact.Args) < 3 {
+					continue
+				}
+				caller, _ := fact.Args[0].(string)
+				importPath, _ := fact.Args[2].(string)
+				if types.CanonicalPath(m.workspace, caller) == file {
+					emit(fmt.Sprintf("%s imports %s", file, importPath))
+				}
+			}
+			// Who imports the file: the files that import the unit it belongs
+			// to (schemas_world.mg, file_unit / import_unit).
+			units, err := core.BoundRows(m.kernel, "file_unit", 2, map[int]any{0: spelling})
+			if err != nil {
+				return deps
+			}
+			for _, u := range units {
+				if len(u.Args) < 2 {
+					continue
+				}
+				unit, _ := u.Args[1].(string)
+				importers, err := core.BoundRows(m.kernel, "import_unit", 2, map[int]any{1: unit})
 				if err != nil {
 					return deps
 				}
-				for _, fact := range results {
-					if len(fact.Args) < 3 {
-						continue
-					}
-					caller, _ := fact.Args[0].(string)
-					callee, _ := fact.Args[1].(string)
-					importPath, _ := fact.Args[2].(string)
-					caller = types.CanonicalPath(m.workspace, caller)
-					callee = types.CanonicalPath(m.workspace, callee)
-					line := ""
-					if pos == 0 && caller == file {
-						line = fmt.Sprintf("%s imports %s", caller, importPath)
-					}
-					if pos == 1 && callee == file {
-						line = fmt.Sprintf("%s imported by %s", callee, caller)
-					}
-					if line != "" && !emitted[line] {
-						emitted[line] = true
-						deps = append(deps, line)
+				for _, fact := range importers {
+					importer, _ := fact.Args[0].(string)
+					if importer = types.CanonicalPath(m.workspace, importer); importer != "" && importer != file {
+						emit(fmt.Sprintf("%s imported by %s", file, importer))
 					}
 				}
 			}

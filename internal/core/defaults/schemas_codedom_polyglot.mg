@@ -196,8 +196,8 @@ Decl cross_lang_refactor_target(Ref) bound [/string].
 # =============================================================================
 # Predicates for test impact analysis (asserted by Go code or derived in policy).
 
-# file_imports(Importer, Imported) - File imports another file
-Decl file_imports(Importer, Imported) bound [/string, /string].
+# "File imports file" is the join import_unit(Importer, U), file_unit(Imported, U)
+# (schemas_world.mg); file_imports, which stored that product, is gone.
 
 # modified_file(File) - File has been modified
 Decl modified_file(File) bound [/string].

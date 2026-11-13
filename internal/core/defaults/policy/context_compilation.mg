@@ -68,7 +68,8 @@ context_relevant(File, /p85) :-
 # Focal file (from focus_resolution) -> its direct dependencies via dependency_link
 context_relevant(Dep, /p70) :-
     focus_resolution(_, File, _, _),
-    dependency_link(File, Dep, _).
+    import_unit(File, Unit),
+    file_unit(Dep, Unit).
 
 # Context-atom fallback: existing activation.mg derives context_atom(Fact) at Score > 30
 # Feed those into our priority chain at lower priority
@@ -123,17 +124,20 @@ context_reachable(File, /hop0) :-
 # Hop 1: direct dependencies of focal files (what focal files import)
 context_reachable(Dep, /hop1) :-
     context_reachable(File, /hop0),
-    dependency_link(File, Dep, _).
+    import_unit(File, Unit),
+    file_unit(Dep, Unit).
 
 # Hop 1: reverse dependencies (files that import focal files)
 context_reachable(Importer, /hop1) :-
     context_reachable(File, /hop0),
-    dependency_link(Importer, File, _).
+    file_unit(File, Unit),
+    import_unit(Importer, Unit).
 
 # Hop 2: dependencies of hop-1 files (2-hop reach)
 context_reachable(Dep, /hop2) :-
     context_reachable(Mid, /hop1),
-    dependency_link(Mid, Dep, _).
+    import_unit(Mid, Unit),
+    file_unit(Dep, Unit).
 
 # Priority by hop distance
 context_file_priority(File, /p100) :- context_reachable(File, /hop0).
@@ -149,7 +153,8 @@ context_file_priority(RootFile, /p95) :-
 context_file_priority(Dep, /p85) :-
     test_state(/failing),
     pytest_failure(_, _, RootFile, _, _),
-    dependency_link(RootFile, Dep, _).
+    import_unit(RootFile, Unit),
+    file_unit(Dep, Unit).
 
 # Wire C4 file priorities into C1's context_relevant chain
 context_relevant(File, Priority) :-

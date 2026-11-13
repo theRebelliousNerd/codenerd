@@ -52,9 +52,6 @@ Decl intelligence_shard_advice(CampaignID, ShardName, Vote, Confidence, Advice) 
 # Edge Case Analysis
 Decl intelligence_file_action(Path, RecommendedAction, Reasoning, Confidence) bound [/string, /name, /string, /number].
 
-# intelligence_file_depends(File, DependsOn)
-# File Dependencies
-Decl intelligence_file_depends(File, DependsOn) bound [/string, /string].
 
 # intelligence_test_coverage(Path, Coverage)
 # Test Coverage

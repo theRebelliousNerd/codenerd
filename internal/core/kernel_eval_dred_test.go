@@ -172,9 +172,10 @@ func worldBatch(t testing.TB, k *RealKernel, prefix string, n int) {
 			{Predicate: "symbol_graph", Args: []any{gn, MangleAtom("/function"), MangleAtom("/private"), path, "func()"}},
 			{Predicate: "dependency_link", Args: []any{fn, gn, ""}},
 			{Predicate: "code_defines", Args: []any{path, fn, MangleAtom("/function"), int64(1), int64(9)}},
+			{Predicate: "file_unit", Args: []any{path, "unit:" + path}},
 		}
 		if i > 0 {
-			facts = append(facts, Fact{Predicate: "file_imports", Args: []any{path, fmt.Sprintf("%s/f%d.go", prefix, i-1)}})
+			facts = append(facts, Fact{Predicate: "import_unit", Args: []any{path, fmt.Sprintf("unit:%s/f%d.go", prefix, i-1)}})
 		}
 		for _, f := range facts {
 			if err := k.AssertWithoutEval(f); err != nil {

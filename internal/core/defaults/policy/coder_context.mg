@@ -18,12 +18,14 @@ coder_context_priority(File, 100) :-
 # Direct dependencies have high priority
 coder_context_priority(File, 80) :-
     coder_target(Target),
-    dependency_link(Target, File, _).
+    import_unit(Target, Unit),
+    file_unit(File, Unit).
 
 # Files that import target have medium priority
 coder_context_priority(File, 60) :-
     coder_target(Target),
-    dependency_link(File, Target, _).
+    file_unit(Target, Unit),
+    import_unit(File, Unit).
 
 # Test files for target have high priority
 coder_context_priority(File, 75) :-

@@ -8,22 +8,49 @@ import (
 	"codenerd/internal/core"
 )
 
+// edge is "from imports the file to" for a language whose import names one
+// file: the file is its own unit.
 func edge(from, to string) Fact {
-	return Fact{Predicate: "dependency_link", Args: []any{from, to, "imp"}}
+	return Fact{Predicate: "import_unit", Args: []any{from, to}}
+}
+
+func member(file, unit string) Fact {
+	return Fact{Predicate: "file_unit", Args: []any{file, unit}}
+}
+
+// withOwnUnits adds, for every file an edge names, the row that makes it its
+// own unit.
+func withOwnUnits(facts ...Fact) []Fact {
+	seen := map[string]bool{}
+	out := append([]Fact(nil), facts...)
+	for _, f := range facts {
+		if f.Predicate != "import_unit" {
+			continue
+		}
+		for _, a := range f.Args {
+			if file := a.(string); !seen[file] {
+				seen[file] = true
+				out = append(out, member(file, file))
+			}
+		}
+	}
+	return out
 }
 
 // A cycle of three files is one component named by its smallest path; a chain
 // into it, an edge out to an external token and a two-file chain are not
 // cycles.
 func TestImportCycleFacts_MeasuresStronglyConnectedComponents(t *testing.T) {
-	got := ImportCycleFacts([]Fact{
+	got := ImportCycleFacts(append(withOwnUnits(
 		edge("b.py", "c.py"), edge("c.py", "a.py"), edge("a.py", "b.py"), // cycle
 		edge("entry.py", "a.py"), // into the cycle, not on it
-		edge("a.py", "pkg:os"),   // external token: no way back
 		edge("x.py", "y.py"),     // a chain
 		edge("z.py", "z.py"),     // a self-import is no cycle of files
-		{Predicate: "file_imports", Args: []any{"y.py", "x.py"}}, // not an edge here
-	})
+	),
+		// An import that leaves the workspace is only its token: no unit, no way back.
+		Fact{Predicate: "dependency_link", Args: []any{"a.py", "mod:os", "os"}},
+		Fact{Predicate: "dependency_link", Args: []any{"y.py", "mod:x", "x"}},
+	))
 	var rows []string
 	for _, f := range got {
 		if f.Predicate != "import_cycle_member" {
@@ -45,6 +72,7 @@ func TestImportCycleFacts_DisjointCyclesAndDeepChains(t *testing.T) {
 	for i := 0; i < 200000; i++ {
 		facts = append(facts, edge(chainFile(i), chainFile(i+1)))
 	}
+	facts = withOwnUnits(facts...)
 	roots := map[string]string{}
 	for _, f := range ImportCycleFacts(facts) {
 		roots[f.Args[0].(string)] = f.Args[1].(string)
@@ -66,7 +94,7 @@ func TestApplyIncrementalResult_RemeasuresImportCycles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyIncrementalResult(kernel, &IncrementalResult{NewFacts: []Fact{edge("a.py", "b.py")}}); err != nil {
+	if err := ApplyIncrementalResult(kernel, &IncrementalResult{NewFacts: withOwnUnits(edge("a.py", "b.py"))}); err != nil {
 		t.Fatal(err)
 	}
 	members := func() int {
@@ -90,5 +118,26 @@ func TestApplyIncrementalResult_RemeasuresImportCycles(t *testing.T) {
 	}
 	if n := members(); n != 0 {
 		t.Fatalf("breaking the cycle left %d members", n)
+	}
+}
+
+// Two Go packages that import each other are a cycle of the files that hold
+// the imports. A file of one of them that imports nothing is reached by the
+// cycle but is not on it, exactly as when every file-to-file edge was stored.
+func TestImportCycleFacts_GoPackagesThatImportEachOther(t *testing.T) {
+	got := ImportCycleFacts([]Fact{
+		member("a/a1.go", "m/a"), member("a/a2.go", "m/a"), member("b/b1.go", "m/b"), member("c/c1.go", "m/c"),
+		edge("a/a1.go", "m/b"), // a imports b
+		edge("b/b1.go", "m/a"), // b imports a: the cycle
+		edge("c/c1.go", "m/a"), // into the cycle, not on it
+	})
+	var rows []string
+	for _, f := range got {
+		rows = append(rows, f.Args[0].(string)+" "+f.Args[1].(string))
+	}
+	slices.Sort(rows)
+	want := []string{"a/a1.go a/a1.go", "b/b1.go a/a1.go"}
+	if !slices.Equal(rows, want) {
+		t.Fatalf("import_cycle_member = %v, want %v", rows, want)
 	}
 }

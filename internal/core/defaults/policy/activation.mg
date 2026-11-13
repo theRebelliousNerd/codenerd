@@ -19,7 +19,8 @@ activation(Target, 90) :-
 # 4. File modification spreads to dependents
 activation(Dep, 70) :-
     modified(File),
-    dependency_link(Dep, File, _).
+    file_unit(File, Unit),
+    import_unit(Dep, Unit).
 
 # 5. Context Pruning - Only high-activation facts enter working memory
 context_atom(fn:string:concat(Fact)) :-

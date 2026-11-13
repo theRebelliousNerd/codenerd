@@ -759,9 +759,11 @@ cached import facts with resolution under the current complete file index
 context-aware read through a borrowed store handle; cursor/decode/query failures
 stop this preparation. Only admitted, otherwise unqueued importers whose resolved
 facts differ join the regular parse/retract/persist pipeline
-(`internal/world/incremental_scan.go:415`). This refreshes `dependency_link`,
-`file_imports` and `imports_project_file` together, including unresolved-to-local
-and last-target-to-external transitions. Body-only changes retain the existing
+(`internal/world/incremental_scan.go:415`). This refreshes `import_unit`,
+`file_unit` and `imports_project_file` together, including unresolved-to-local
+and last-target-to-external transitions. Since the import graph is held in
+factors (below), a file joining or leaving a package that already has a member
+changes no importer's rows: only a unit's first or last member does. Body-only changes retain the existing
 incremental path; this contract does not generalize to arbitrary resolver or
 module-identity changes without file membership changes.
 
@@ -863,3 +865,34 @@ still costs the incremental evaluator 1.1-1.5 s to re-derive about 3,300
 over-deleted context and impact rows (kernel log: "6 changed rows ... 3298
 over-deleted ... re-derive 1.46s; costliest heads: coder_include_in_context,
 coder_context_priority, coder_impacted_1").
+
+## The import graph is stored in factors
+
+"File X imports file Y" is two relations, never one row per pair
+(`internal/core/defaults/schemas_world.mg`, `file_unit` and `import_unit`):
+`import_unit(File, Unit)` is one row per in-workspace import a file makes, and
+`file_unit(File, Unit)` is one row per file that an import can reach. A unit is
+what an import statement names: a Go package's import path (its non-test files
+are the members, `goUnitOfDir`, `internal/world/dependency_links.go:242`), or
+the file itself for languages whose import names one file (`unitOfFile`,
+`:261`). A member that names its own unit gets no row (`importedUnits`, `:278`).
+`dependency_link` keeps only the raw rows a parser emits (`pkg:`, `mod:` and
+`crate:` tokens with the import path).
+
+Every reader joins the two with its bound side first: the policy rules
+(`impacted`, `coder_impacted_*`, `symbol_reachable`, `context_priority`,
+`test_depends_on`, the reviewer's coupling and layer rules), the import-cycle
+measurement, which runs Tarjan over the file-unit-file graph
+(`ImportCycleFacts`, `internal/world/import_cycles.go:40`), the test-impact builder
+(`internal/world/test_dependency.go`), the shadow simulation, the proof trace
+and the chat dependency context. A file's dependent count is its unit's
+importer count, aggregated once per unit.
+
+The stored product was one `dependency_link` and one `file_imports` row from
+each importer to every file of the imported package: 225,604 rows of each on
+this repository, 78% of the 582k fast-depth rows the kernel loads at boot, and
+it grew with files times package size. `TestImportUnits_JoinEqualsTheStoredProduct`
+(`internal/world/import_units_equivalence_test.go`) holds the join to the
+product the earlier resolver emitted. A fact cache written before the change is
+restaged once on the next scan (`importRefreshPaths`,
+`internal/world/incremental_imports.go:71`).

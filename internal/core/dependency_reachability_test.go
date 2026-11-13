@@ -7,22 +7,19 @@ import (
 	"codenerd/internal/types"
 )
 
-// denseImportGraph builds a layered file->file import graph of the shape real
-// resolution produces: package-level fan-out, every file of a layer importing
-// every file of the next. layers*width*width edges.
+// denseImportGraph builds a layered import graph of the shape real resolution
+// produces: package-level fan-out, every file of a layer importing the next
+// layer's package and so every file of it. layers*width*width file-to-file
+// edges, held in factors: one import_unit row per importer and one file_unit
+// row per member.
 func denseImportGraph(layers, width int) []types.Fact {
-	facts := make([]types.Fact, 0, layers*width*width)
-	for p := range layers {
+	facts := make([]types.Fact, 0, 2*(layers+1)*width)
+	for p := range layers + 1 {
 		for a := range width {
-			for b := range width {
-				facts = append(facts, types.Fact{
-					Predicate: "dependency_link",
-					Args: []any{
-						fmt.Sprintf("p%d/f%d.go", p, a),
-						fmt.Sprintf("p%d/f%d.go", p+1, b),
-						"import",
-					},
-				})
+			file := fmt.Sprintf("p%d/f%d.go", p, a)
+			facts = append(facts, types.Fact{Predicate: "file_unit", Args: []any{file, fmt.Sprintf("m/p%d", p)}})
+			if p < layers {
+				facts = append(facts, types.Fact{Predicate: "import_unit", Args: []any{file, fmt.Sprintf("m/p%d", p+1)}})
 			}
 		}
 	}
@@ -55,7 +52,7 @@ func TestDependencyReachability_WhenGraphIsDense_ShouldNotKillTheKernel(t *testi
 
 	facts := denseImportGraph(40, 25) // 25,000 edges; the real repo produces ~33,000
 	if err := k.AssertFactBatch(facts); err != nil {
-		t.Fatalf("asserting %d dependency_link facts: %v", len(facts), err)
+		t.Fatalf("asserting %d import-graph facts: %v", len(facts), err)
 	}
 
 	rows, err := k.Query("safe_action(A)")
@@ -110,11 +107,12 @@ func TestDependencyReachability_WhenSeeded_ShouldAnswer(t *testing.T) {
 	}
 
 	// A simple chain: a.go -> b.go -> c.go -> d.go.
-	chain := []types.Fact{
-		{Predicate: "dependency_link", Args: []any{"a.go", "b.go", "import"}},
-		{Predicate: "dependency_link", Args: []any{"b.go", "c.go", "import"}},
-		{Predicate: "dependency_link", Args: []any{"c.go", "d.go", "import"}},
-		{Predicate: "dependency_link", Args: []any{"unrelated.go", "other.go", "import"}},
+	var chain []types.Fact
+	for _, e := range [][2]string{{"a.go", "b.go"}, {"b.go", "c.go"}, {"c.go", "d.go"}, {"unrelated.go", "other.go"}} {
+		chain = append(chain,
+			types.Fact{Predicate: "import_unit", Args: []any{e[0], "unit:" + e[1]}},
+			types.Fact{Predicate: "file_unit", Args: []any{e[1], "unit:" + e[1]}},
+		)
 	}
 	if err := k.AssertFactBatch(chain); err != nil {
 		t.Fatalf("assert chain: %v", err)

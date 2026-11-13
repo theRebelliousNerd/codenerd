@@ -635,9 +635,13 @@ func (s *Scanner) scanIncremental(ctx context.Context, root string, db *store.Lo
 					return
 				}
 			}
-			// Resolve this file's imports into file->file edges while its facts
-			// are still a unit, so they are stored and retracted with it.
+			// Resolve this file's imports into the units they name, and the
+			// file into the unit it belongs to, while its facts are still one
+			// group, so they are stored and retracted with it.
 			additional = append(additional, resolveDependencyLinksWithIndex(importIndex, additional)...)
+			if unit, ok := fileUnitFact(importIndex, canonical); ok {
+				additional = append(additional, unit)
+			}
 			if err := ctx.Err(); err != nil {
 				recordFailure(path, err)
 				return

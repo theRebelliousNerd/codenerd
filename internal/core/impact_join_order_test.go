@@ -21,18 +21,27 @@ func queryFirstArgs(t *testing.T, k *RealKernel, pred string) []string {
 }
 
 // The impact rules lead with the modified file and look its importers up in
-// dependency_link (one row per file import edge), never the other way round.
+// the import graph (file_unit of the modified file, then import_unit), never
+// the other way round.
 // Body order changes cost, not answers: these are the answers.
 func TestImpactRulesFollowImportersOfModifiedFiles(t *testing.T) {
 	k := setupMockKernel(t)
-	for _, f := range []Fact{
-		{Predicate: "dependency_link", Args: []any{"a.go", "b.go", "p/b"}},
-		{Predicate: "dependency_link", Args: []any{"b.go", "c.go", "p/c"}},
-		{Predicate: "dependency_link", Args: []any{"z.go", "a.go", "p/a"}},
+	imports := func(from, to string) []Fact {
+		return []Fact{
+			{Predicate: "import_unit", Args: []any{from, "unit:" + to}},
+			{Predicate: "file_unit", Args: []any{to, "unit:" + to}},
+		}
+	}
+	var facts []Fact
+	for _, e := range [][2]string{
+		{"a.go", "b.go"}, {"b.go", "c.go"}, {"z.go", "a.go"},
 		// Near miss: an edge into a file nothing modified reaches.
-		{Predicate: "dependency_link", Args: []any{"x.go", "y.go", "p/y"}},
-		{Predicate: "modified", Args: []any{"c.go"}},
+		{"x.go", "y.go"},
 	} {
+		facts = append(facts, imports(e[0], e[1])...)
+	}
+	facts = append(facts, Fact{Predicate: "modified", Args: []any{"c.go"}})
+	for _, f := range facts {
 		if err := k.Assert(f); err != nil {
 			t.Fatal(err)
 		}

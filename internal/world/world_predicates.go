@@ -11,7 +11,7 @@ package world
 //	------                     ----                                   -------
 //	Scanner (full/incremental) topology, symbols, imports, entry pts   every scan
 //	                             + test-impact file facts (file_package,
-//	                               is_test_file, file_imports)
+//	                               is_test_file, file_unit, import_unit)
 //	                             + imports_project_file
 //	import-graph measurement   import_cycle_member                    when edges change
 //	Cartographer / deep scan   code_defines/code_calls + data flow     on demand (/scan --deep)
@@ -61,7 +61,10 @@ var ScannerPredicates = []string{
 	// dual listing would delete world knowledge on every open_file.
 	"file_package",
 	"is_test_file",
-	"file_imports",
+	// The import graph in factors (dependency_links.go): the unit a source
+	// file belongs to, and the units a file imports. Each is its file's own.
+	"file_unit",
+	"import_unit",
 	// Per-file import-graph measurement (import_cycles.go), emitted with
 	// the file's resolved edges.
 	"imports_project_file",
