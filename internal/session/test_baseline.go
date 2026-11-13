@@ -154,29 +154,27 @@ func notePreExisting(head TestVerification, preExisting []TestKey, all bool) Tes
 	return head
 }
 
-// failuresAllPredate reports whether every named failure also failed before
-// the turn. gateTests uses it only to keep measuring importers, so a new
-// importer failure is still recorded when the turn's own failures are
-// entirely the baseline's. It does not set the outcome. An unnamed failure
-// is the turn's, and a baseline that did not run attributes nothing.
-func failuresAllPredate(v TestVerification) bool {
+// noFailureIsTheTurns reports whether every named failure is one the /test
+// rule does not charge to the turn: it failed before the turn (the baseline),
+// or it failed once and passed when the edited tree ran it again (flaky,
+// Unreproduced) -- the same exemption turn_test_unreproduced gives in
+// policy/coder_safety.mg and turnFailures applies. gateTests uses it to keep
+// measuring importers, the uplift recheck to decide whether an uplift broke
+// the tests. It does not set the outcome. An unnamed failure is the turn's,
+// and a baseline that did not run attributes nothing.
+//
+// It used to exempt the baseline only. Live 2026-11-12 a flaky failure the
+// rerun had cleared still read as the turn's here: the importer run was
+// canceled ("the turn's own tests failed first") and an uplift round whose
+// code was green was undone as having broken the tests.
+func noFailureIsTheTurns(v TestVerification) bool {
 	if !v.BaselineRan {
 		return false
 	}
-	keys := failedTestKeys(v.Result)
-	if len(keys) == 0 {
+	if len(failedTestKeys(v.Result)) == 0 {
 		return false
 	}
-	before := make(map[TestKey]bool, len(v.BaselineFailures))
-	for _, k := range v.BaselineFailures {
-		before[k] = true
-	}
-	for _, k := range keys {
-		if !before[k] {
-			return false
-		}
-	}
-	return true
+	return len(turnFailures(v)) == 0
 }
 
 func partitionPreExisting(headFailed []TestKey, baseline *testfacts.Result) []TestKey {

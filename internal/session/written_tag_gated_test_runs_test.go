@@ -101,7 +101,7 @@ func TestGate_RunsTheTagGatedTestTheTurnWrote(t *testing.T) {
 			Failures: failedImporterResult("TestOld", "old").Failures,
 		},
 	}
-	if !failuresAllPredate(baselineOnly) {
+	if !noFailureIsTheTurns(baselineOnly) {
 		t.Fatal("fixture: the default failure should predate the turn")
 	}
 	out := withWrittenTagGatedTests(context.Background(), workspace, []string{rel}, baselineOnly)

@@ -333,7 +333,48 @@ func TestCriticUplift_PreExistingTestFailureDoesNotUndoUplift(t *testing.T) {
 	if readErr != nil || string(data) != closureHalf {
 		t.Fatalf("uplift was undone because of a pre-existing failure; main.go:\n%s", data)
 	}
-	if !failuresAllPredate(result.TestCheck) {
+	if !noFailureIsTheTurns(result.TestCheck) {
 		t.Fatalf("expected remaining failure to be attributed to baseline: %+v", result.TestCheck)
 	}
+}
+
+// A test that fails once after the uplift and passes when the edited tree
+// runs it again is flaky, and the /test rule does not charge it
+// (turn_test_unreproduced). The uplift recheck must read it the same way:
+// live 2026-11-12 an uplift whose code was green was undone as having broken
+// the tests because of one such failure.
+func TestCriticUplift_AFlakyFailureDoesNotUndoUplift(t *testing.T) {
+	t.Parallel()
+	// Fails the first time it sees Half in main.go, then never again: a
+	// marker beside the workspace records that it failed once.
+	flaky := "package main\n\nimport (\n\t\"os\"\n\t\"path/filepath\"\n\t\"strings\"\n\t\"testing\"\n)\n\n" +
+		"func TestFlakyOnce(t *testing.T) {\n" +
+		"\tsrc, _ := os.ReadFile(\"main.go\")\n" +
+		"\tif !strings.Contains(string(src), \"func Half\") {\n\t\treturn\n\t}\n" +
+		"\tmarker := filepath.Join(\"..\", \"flaky-once.marker\")\n" +
+		"\tif _, err := os.Stat(marker); err == nil {\n\t\treturn\n\t}\n" +
+		"\t_ = os.WriteFile(marker, nil, 0o644)\n" +
+		"\tt.Fatal(\"failed once\")\n}\n"
+	h, result, err := criticTurn(t,
+		map[string]string{"main.go": closureDoubleBefore, "main_test.go": closureTestDouble, "flaky_test.go": flaky},
+		map[string]string{"main.go": closureDouble},
+		func(prompt string) map[string]string {
+			switch {
+			case strings.Contains(prompt, upliftAsk):
+				return map[string]string{"main.go": closureHalf}
+			case strings.Contains(prompt, "no test executes these lines"):
+				return map[string]string{"main_test.go": closureTestHalf}
+			}
+			return nil
+		})
+	if err != nil {
+		t.Fatalf("ProcessWithIntent: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(h.ws, "..", "flaky-once.marker")); statErr != nil {
+		t.Fatalf("the flaky test never failed, so this test proves nothing: %v", statErr)
+	}
+	if data, readErr := os.ReadFile(filepath.Join(h.ws, "main.go")); readErr != nil || string(data) != closureHalf {
+		t.Fatalf("the uplift was undone for a failure that did not reproduce; main.go:\n%s", data)
+	}
+	_ = result
 }

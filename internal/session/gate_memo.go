@@ -280,7 +280,7 @@ func finalFixTests(ctx context.Context, workspace string, result *ExecutionResul
 	result.TestCheck = own
 	result.UncoveredBlocks = narrowToChangedLines(workspace, result, uncovered)
 	if own.Verdict() != VerifyPassed {
-		if failuresAllPredate(own) {
+		if noFailureIsTheTurns(own) {
 			return TestVerification{Outcome: VerifyIndeterminate, Reason: "narrow tests are not green; final suite withheld"}, nil
 		}
 		return own, nil

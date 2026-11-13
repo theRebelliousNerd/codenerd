@@ -492,8 +492,8 @@ func TestPartitionPreExisting_SameNameInAnotherPackageIsNew(t *testing.T) {
 			{Name: "example/b", Tests: []*testfacts.Test{{Name: "TestLoad", Status: testfacts.StatusFail}}},
 		}},
 	}
-	if failuresAllPredate(v) {
-		t.Fatal("failuresAllPredate = true; example/b.TestLoad is new")
+	if noFailureIsTheTurns(v) {
+		t.Fatal("noFailureIsTheTurns = true; example/b.TestLoad is new")
 	}
 }
 

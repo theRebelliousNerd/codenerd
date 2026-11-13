@@ -229,7 +229,7 @@ var testFuncDecl = regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]*)\(`)
 // tagged tests pass (the policy still reads the baseline failures), and gives
 // way to the tagged failure when they do not. Any other verdict stands as is.
 func withWrittenTagGatedTests(ctx context.Context, workspace string, written []string, v TestVerification) TestVerification {
-	if v.Verdict() != VerifyPassed && !failuresAllPredate(v) {
+	if v.Verdict() != VerifyPassed && !noFailureIsTheTurns(v) {
 		return v
 	}
 	for _, rel := range written {

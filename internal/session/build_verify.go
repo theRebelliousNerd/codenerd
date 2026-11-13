@@ -717,7 +717,7 @@ func gateTests(ctx context.Context, workspace string, result *ExecutionResult, w
 	// Importers still run when the turn's own named failures all predate it,
 	// so a new importer failure is measured. That comparison schedules the
 	// run. It does not set the outcome.
-	if v.Verdict() != VerifyPassed && !failuresAllPredate(v) {
+	if v.Verdict() != VerifyPassed && !noFailureIsTheTurns(v) {
 		switch v.Verdict() {
 		case VerifyCanceled, VerifyIndeterminate:
 			// This run did not finish. The previous importer measurement
@@ -793,7 +793,7 @@ func gateTestsConcurrent(ctx context.Context, workspace string, result *Executio
 	}()
 
 	v, uncovered := gateOwnTests(ctx, workspace, result, withCoverage)
-	if v.Verdict() != VerifyPassed && !failuresAllPredate(v) {
+	if v.Verdict() != VerifyPassed && !noFailureIsTheTurns(v) {
 		cancelImp()
 		<-impCh
 		switch v.Verdict() {
@@ -1485,10 +1485,10 @@ func upliftBrokeTests(measured *ExecutionResult) bool {
 	if isTDDRedPhaseTurn(measured) {
 		return false
 	}
-	if measured.TestCheck.Verdict() == VerifyFailed && !failuresAllPredate(measured.TestCheck) {
+	if measured.TestCheck.Verdict() == VerifyFailed && !noFailureIsTheTurns(measured.TestCheck) {
 		return true
 	}
-	if measured.ImporterCheck.Verdict() == VerifyFailed && !failuresAllPredate(measured.ImporterCheck) {
+	if measured.ImporterCheck.Verdict() == VerifyFailed && !noFailureIsTheTurns(measured.ImporterCheck) {
 		return true
 	}
 	return false
