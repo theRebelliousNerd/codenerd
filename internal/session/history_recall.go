@@ -123,10 +123,14 @@ func renderEvictedHistory(evicted []types.Message) string {
 	return b.String()
 }
 
+// historyHandleWidth is how many digits an eviction handle carries after its
+// prefix: whatever historyEvictionHandle mints, said in one place.
+var historyHandleWidth = len(historyEvictionHandle(nil)) - len(historyHandlePrefix)
+
 // isShortHandle reports whether s is a working observation's short handle: a
-// non-empty run of decimal digits, never an eviction handle's sixteen hex.
+// non-empty run of decimal digits, shorter than an eviction handle's hex.
 func isShortHandle(s string) bool {
-	if s == "" || len(s) >= 16 {
+	if s == "" || len(s) >= historyHandleWidth {
 		return false
 	}
 	for _, c := range s {

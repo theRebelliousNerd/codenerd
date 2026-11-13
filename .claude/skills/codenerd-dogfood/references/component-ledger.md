@@ -6708,3 +6708,33 @@ Still open: specialist consults and reviews are dealt by the file's package,
 not by what the change touches; an added import runs every importer's tests;
 the pinning gate has no share of the budget; a green change cannot be parked as
 a candidate.
+
+## Wiring, fixing and optimizing sprint, by hand (2026-11-12 evening; codeNERD not run)
+
+Root session plus one Opus lane in the main tree. Found by reading code, the
+session's logs and a rule lint written for the purpose, not by running nerd.
+
+- Whole-relation copies: per-turn and per-file code asked the kernel for every
+  row of dependency_link, code_calls, symbol_graph and code_defines and filtered
+  in Go. One copy of dependency_link: 135 ms, 80 MB. Now indexed (57 us).
+- The compressor took a copy of every fact to read one predicate, and formatted
+  every fact to resolve a few dozen named entities.
+- The activation engine built a map of maps per fact scored.
+- The test-impact graph was polynomial in the workspace and would not finish on
+  this repository.
+- The spec pairing re-published about 75k rows after every edit.
+- The holographic call graph matched symbols by substring.
+- Lane: reviews dealt by what the change touches; provider outages not re-asked
+  per step; import changes keep the importer selection when reachability is
+  unchanged; pin verdicts remembered per tree; flaky failures not charged.
+
+Two defects were in the same day's own work and were caught by wider test runs,
+not by their own tests: a policy rule whose facts lived in different shards
+(only the shard join audit sees that), and a query form that test fakes do not
+understand. A fix to the policy needs the shard audit; a change to how the
+kernel is asked needs the packages that fake the kernel.
+
+Open: a handful of retracted turn facts cost the incremental evaluator a second
+or more to re-derive; the turn path scores every catch-all fact in Go; expert
+knowledge bases ingest mirrored agent files several times; the edge-case
+detector's dependents-of-a-file match by base name and never match Go files.

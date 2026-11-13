@@ -982,3 +982,24 @@ work. A step that errors and then makes its edit on the retry goes on.
 TestRunPlannedSteps_AnErroredStepThatWroteNothingHaltsThePlan and
 TestRunPlannedSteps_AnErroredStepThatThenEditsGoesOn
 (`internal/session/work_steps_halt_test.go:38`, `:82`) hold both.
+
+## Gates after the 2026-11-12 sprint
+
+An import change keeps the importer test selection when every added or removed
+package-level import is already reachable through another import of the
+package, and a new package-level declaration does when it calls nothing and
+shadows no builtin (`internal/session/rts_imports.go`); a swapped or dot
+import, or a new blank import, still runs every importer. The pinning gate
+remembers each finished verdict for the tree it measured
+(`internal/session/pin_gate.go`). A failure the rerun cleared as flaky is not
+the turn's in the importer schedule or the uplift recheck
+(`internal/session/test_baseline.go:170`). A working request's composition
+names a tool call whose arguments it could not measure instead of counting it
+as nothing. A recall handle written as an observation's short number under the
+eviction prefix goes to the working set.
+
+Not built: retrieved knowledge rows fill most of a step prompt (about 100k of
+a 147k-character step prompt in the measured case); the relevance judgment
+now refuses rows read as not applying, which removed about 13% in a sample of
+that step's rows, and the same paragraphs are still ingested several times
+into expert knowledge bases from mirrored agent files.
