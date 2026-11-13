@@ -551,3 +551,33 @@ build and vet pass. This
 establishes the bounded `GAP-CTX-MASK-SIDECAR` contract; it does not repair legacy
 saved segments, redact separately selected current kernel facts, or close the
 broader eviction/recoverability obligations in `GAP-CTX-05` and `GAP-CTX-06`.
+
+## What a context build reads from the kernel
+
+A build asks the kernel for the predicates it reads by name; it no longer takes
+`QueryAll()`, a copy of every fact, to read `user_intent` or the dozen small
+relations behind the activation contexts
+(`internal/context/compressor.go`, `compressor_turns.go`).
+
+The entities `should_include_context` names are resolved by
+`resolveNamedEntities` (`internal/context/compressor_metrics.go:678`): one pass
+over the facts that builds the exact-spelling and by-argument lookups for the
+named strings only, formatting a fact only when a name could be its spelling
+(`couldSpell`, `:728`). The earlier form formatted every fact and built both
+lookups for all of them; it is kept as the oracle in
+`internal/context/resolve_named_entities_test.go` (300k facts: 495 ms and
+253 MB before, 17 ms and 61 KB after).
+
+The Go activation engine filters at the threshold before it orders
+(`scoreAboveThresholdLocked`, `internal/context/activation.go:628`) and makes
+the relevance score's lower-cased terms once per state
+(`relevanceTermsLocked`, `internal/context/activation_scoring.go:135`); the
+verb-to-predicate boost table is a package value. Scoring 300k facts measured
+1.6 s and 1.11 GB before and 0.24 s and 83 MB after
+(`BenchmarkApplyIntentActivation`).
+
+Not built: the turn path and every state save still collect every EDB fact and
+score each one in Go. The vision is that the kernel selects what enters the
+window; the Go engine is the fallback and should not see the world model at
+all. The verb-to-predicate boosts are a decision table in Go for the same
+reason.

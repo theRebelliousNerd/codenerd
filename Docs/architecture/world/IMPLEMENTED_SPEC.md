@@ -814,3 +814,52 @@ Not built: `world_facts` carries four indexes, one of which duplicates the
 primary key's leading column, and `cold_storage` mirroring rewrites unchanged
 rows. Both are measured costs (7 s and 5.5 s on a 284k-row rescan) left for a
 schema migration.
+
+## A file's rows are asked for, not found in a copy of the relation
+
+The holographic context of a file reads only that file's rows, through the
+kernel's argument index (`BoundQuery`, `internal/core/query_bound.go:17`): the
+importers of its package (`applyDirectImporters`,
+`internal/world/holographic_dependencies.go:76`), its declarations and the call
+edges at them (`queryRelationshipsWithContext`,
+`internal/world/holographic.go:1356`), and the spans of its callers
+(`attachDeclaredSpans`, `internal/world/holographic_impact.go:111`). Each used
+to copy the whole relation and filter it, for every file the model opened; one
+copy of `dependency_link` at this repository's size measured 135 ms, 80 MB and
+a million allocations against 57 microseconds for the indexed rows
+(BenchmarkDependencyRowsOfOneFile in `internal/core/query_bound_test.go`).
+
+A call edge belongs to a file when its caller or its callee is one of the
+file's symbols. The walk matched with a substring test, so a symbol that
+prefixes another was credited with the other's edges and the counts behind the
+prompt's remainder were inflated
+(TestHolographicCallGraph_CountsOnlyEdgesOfTheFilesOwnSymbols,
+`internal/world/holographic_exact_edges_test.go`).
+
+## The test-impact graph keeps file-level edges unexpanded
+
+`TestDependencyBuilder` (`internal/world/test_dependency.go`) records call
+edges as they are and a file-level dependency (a test file imports a file, or
+shares a Go package directory with it) as the pair of files
+(`addFileLevelDependency`, `:371`), over an index of elements by file built once
+(`indexElements`, `:327`). An edit is matched against a test's file-level edges
+only for the files it touched (`fileLevelRefs`, `:411`). The earlier builder
+expanded every such pair into test-function-by-element edges at build time,
+rescanning every element per pair and scanning a test's edge list per insert;
+its answers are kept as the oracle in
+`internal/world/test_dependency_equivalence_test.go`.
+
+## A retaken spec measurement applies as its difference
+
+`applySpecFacts` (`internal/world/spec_facts.go:458`) reads the spec rows the
+kernel holds, retracts those the new measurement lacks and loads those it does
+not hold. The measurement is whole and is retaken after any document or code
+edit; replacing it whole made the kernel see about 151k changed rows for a
+two-row difference (TestSpecFacts_ARetakenMeasurementAppliesAsItsDifference,
+`internal/world/spec_facts_delta_test.go`).
+
+Not built: an edit that removes a turn's `modified` and `coder_target` rows
+still costs the incremental evaluator 1.1-1.5 s to re-derive about 3,300
+over-deleted context and impact rows (kernel log: "6 changed rows ... 3298
+over-deleted ... re-derive 1.46s; costliest heads: coder_include_in_context,
+coder_context_priority, coder_impacted_1").

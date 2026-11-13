@@ -295,3 +295,18 @@ costs of this opt-in development feature; latency and memory remain unmeasured.
 that exact turn and sequence, defaulting to zero when omitted. These facts and
 conclusions are protected host witnesses. Their shard home is the same world
 shard as `turn_check_run` and `turn_gate`; model updates cannot widen the pass set.
+
+### Bound queries and memory readings (query_bound.go, limits.go)
+
+`BoundQuery` (`internal/core/query_bound.go:17`) spells the pattern for a
+predicate's rows whose string arguments at given positions equal given values;
+the kernel answers it from the store's argument index. Callers that want one
+file's or one symbol's rows of a world-sized relation use it instead of
+copying the relation.
+
+`RuntimeMemory` (`internal/core/limits.go:120`) reads heap-object and
+runtime-mapped bytes from `runtime/metrics`, which does not stop the world; the
+limits enforcer and the chat footer use it in place of `runtime.ReadMemStats`.
+
+`Fact.String` (`internal/types/types.go:141`) writes one buffer; its text is
+unchanged (`internal/types/fact_string_equiv_test.go`).

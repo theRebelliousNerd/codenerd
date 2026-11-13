@@ -636,3 +636,14 @@ An unattended fix chain is stopped when the kernel derives it over budget
 recorded `over_budget`. The self-repair look runs as a plan made in a command
 and landed on the Update thread (`cmd/nerd/chat/self_repair_plan.go:117`,
 `:206`). Neither has run in a live session yet.
+
+## Idle tick and per-turn session context
+
+The footer's two-second memory tick reads memory without stopping the world
+and refits the layout only when the footer, the activity trail or the services
+section changed height (`idleRowHeights`, `cmd/nerd/chat/layout.go:221`). The
+session context asks the kernel for public symbols by visibility and for the
+active files' dependency rows by file, in both directions and in every
+spelling a producer may have recorded
+(`cmd/nerd/chat/model_session_context.go:410`, `:440`); it used to copy
+`symbol_graph` and `dependency_link` whole on every turn.
