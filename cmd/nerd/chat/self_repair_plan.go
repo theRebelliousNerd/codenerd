@@ -44,6 +44,9 @@ type selfRepairPlanMsg struct {
 	// baselines is the optimize lane's settled mean per target, when B built
 	// an optimize job.
 	baselines map[string]int64
+	// finish is a parked candidate's job the kernel derived due to be
+	// finished (self_repair_finish_due); with it, nothing else was planned.
+	finish string
 }
 
 // planInFlight reports a plan being made.
@@ -135,6 +138,17 @@ func (m Model) planSelfRepair(ctx context.Context, ledger *problemlog.RepairLedg
 	if ctx.Err() != nil {
 		return plan
 	}
+	// A parked candidate is finished before a new target is chosen; the
+	// kernel says when (self_repair_finish_due).
+	finish, err := problemlog.FinishDue(m.kernel)
+	if err != nil {
+		log.Warn("%s self-repair: %v", selfDebugMarker, err)
+		return plan
+	}
+	if len(finish) > 0 {
+		plan.finish = finish[0]
+		return plan
+	}
 	due, err := problemlog.DueTargets(m.kernel)
 	if err != nil {
 		log.Warn("%s self-repair: %v", selfDebugMarker, err)
@@ -223,6 +237,9 @@ func (m Model) landSelfRepairPlan(plan selfRepairPlanMsg) (Model, tea.Cmd) {
 	if len(plan.verified)+len(plan.regressed) > 0 {
 		m = m.adoptSelfRepairVerdicts(ledger, plan.verified, plan.regressed, plan.now)
 		return m, selfRepairCheck
+	}
+	if plan.finish != "" {
+		return m.finishParkedCandidate(ledger, plan.finish, plan.now)
 	}
 	if plan.due == 0 {
 		return m, nil

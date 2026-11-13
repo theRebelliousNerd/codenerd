@@ -56,11 +56,17 @@ const (
 	// undone. Counts as a failure: a retry is told, and a target that keeps
 	// running over is left.
 	RepairOverBudget RepairStatus = "over_budget"
+	// RepairParked: its fix chain ran out of budget with a change whose own
+	// gates had passed and a slower one not yet finished. The change was
+	// undone and kept, with that evidence, as a candidate
+	// (ParkedCandidate): the kernel finishes it before choosing a new target
+	// (self_repair_finish_due). Not a failure.
+	RepairParked RepairStatus = "parked"
 )
 
 // RepairStatuses is every status, in lifecycle order.
 var RepairStatuses = []RepairStatus{RepairBeingFixed, RepairPendingRestart, RepairVerifying, RepairVerified,
-	RepairRegressed, RepairFailed, RepairStopped, RepairNoDefect, RepairOverBudget}
+	RepairRegressed, RepairFailed, RepairStopped, RepairNoDefect, RepairOverBudget, RepairParked}
 
 // countsAsFailure reports the statuses that move a target toward being left.
 func (s RepairStatus) countsAsFailure() bool {
@@ -108,6 +114,9 @@ type RepairAttempt struct {
 	// both, so it does not make the same change again.
 	AttemptDiff string   `json:"attempt_diff,omitempty"`
 	FailedTests []string `json:"failed_tests,omitempty"`
+	// Parked is, for RepairParked, the workspace-relative manifest of the
+	// parked candidate (ParkedCandidate).
+	Parked string `json:"parked,omitempty"`
 }
 
 // FixWindow is when a self-repair fix turn ran, in unix seconds. EndUnix is
@@ -342,6 +351,63 @@ func (l *RepairLedger) EndFixing(status RepairStatus, note string, now time.Time
 	return n, err
 }
 
+// Park settles job's targets still being fixed as parked on the candidate
+// manifest, with why, and returns how many it parked.
+func (l *RepairLedger) Park(job, manifest, note string, now time.Time) (int, error) {
+	n := 0
+	err := l.update(func(a *RepairAttempt) bool {
+		if a.Job != job || a.Status != RepairBeingFixed {
+			return false
+		}
+		settle(a, RepairParked, note, now)
+		a.Parked = manifest
+		n++
+		return true
+	})
+	return n, err
+}
+
+// Resume takes job's parked targets back into their fix turn: the candidate
+// is applied and its remaining gates run (being fixed, fixing).
+func (l *RepairLedger) Resume(job string, now time.Time) (int, error) {
+	n := 0
+	err := l.update(func(a *RepairAttempt) bool {
+		if a.Job != job || a.Status != RepairParked {
+			return false
+		}
+		a.Status, a.Phase, a.UpdatedUnix = RepairBeingFixed, PhaseFixing, now.Unix()
+		n++
+		return true
+	})
+	return n, err
+}
+
+// DropParked settles job's parked targets with status and why (a stale
+// candidate, one that cannot be read).
+func (l *RepairLedger) DropParked(job string, status RepairStatus, note string, now time.Time) (int, error) {
+	n := 0
+	err := l.update(func(a *RepairAttempt) bool {
+		if a.Job != job || a.Status != RepairParked {
+			return false
+		}
+		settle(a, status, note, now)
+		n++
+		return true
+	})
+	return n, err
+}
+
+// ParkedManifest is the candidate manifest job's parked targets name, "" when
+// none is parked.
+func (l *RepairLedger) ParkedManifest(job string) string {
+	for _, a := range l.Attempts() {
+		if a.Job == job && a.Status == RepairParked && a.Parked != "" {
+			return a.Parked
+		}
+	}
+	return ""
+}
+
 // Verdict adopts the kernel's verdict on a verifying target.
 func (l *RepairLedger) Verdict(target string, status RepairStatus, note string, now time.Time) (bool, error) {
 	changed := false
@@ -358,7 +424,7 @@ func (l *RepairLedger) Verdict(target string, status RepairStatus, note string, 
 
 func settle(a *RepairAttempt, status RepairStatus, note string, now time.Time) {
 	a.Status, a.Phase, a.Note, a.UpdatedUnix, a.EvidenceCount = status, "", note, now.Unix(), 0
-	a.AttemptDiff, a.FailedTests = "", nil
+	a.AttemptDiff, a.FailedTests, a.Parked = "", nil, ""
 	if status.countsAsFailure() {
 		a.Failures++
 	}
@@ -469,6 +535,7 @@ const (
 	RepairOverBudgetPredicate = "self_repair_fix_over_budget"
 	RepairFixingPredicate     = "self_repair_fixing"
 	RepairDuePredicate        = "self_repair_due"
+	RepairFinishDuePredicate  = "self_repair_finish_due"
 	RepairShardPredicate      = "self_repair_shard"
 	RepairVerifiedPredicate   = "self_repair_verified"
 	RepairRegressedPred       = "self_repair_regressed"
@@ -590,6 +657,23 @@ func DueTargets(k Querier) ([]Due, error) {
 		}
 		return out[i].Target < out[k].Target
 	})
+	return out, nil
+}
+
+// FinishDue asks the kernel which parked candidates are due to be finished
+// (self_repair_finish_due), by job, sorted.
+func FinishDue(k Querier) ([]string, error) {
+	rows, err := k.Query(RepairFinishDuePredicate)
+	if err != nil {
+		return nil, fmt.Errorf("problemlog: query %s: %w", RepairFinishDuePredicate, err)
+	}
+	var out []string
+	for _, f := range rows {
+		if len(f.Args) == 1 {
+			out = append(out, factString(f.Args[0]))
+		}
+	}
+	sort.Strings(out)
 	return out, nil
 }
 

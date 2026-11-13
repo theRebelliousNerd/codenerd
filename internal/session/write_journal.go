@@ -56,6 +56,9 @@ type WriteJournal struct {
 	// (workspace-relative slash form, as PreWriteContents keys it).
 	entries  map[string]map[string]PreImage
 	failures []string
+	// lastTests is the latest turn's own test run: "passed", "failed", or
+	// "" when no turn of the span ran one.
+	lastTests string
 }
 
 // NewWriteJournal starts an empty journal.
@@ -105,6 +108,28 @@ func (j *WriteJournal) NoteTestFailures(lines []string) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.failures = append([]string(nil), lines...)
+	j.lastTests = "failed"
+}
+
+// NoteTestsPassed records that the latest turn's own test run passed.
+func (j *WriteJournal) NoteTestsPassed() {
+	if j == nil {
+		return
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.lastTests = "passed"
+}
+
+// TestsPassed reports whether the span's latest own test run passed: the
+// evidence a parked self-repair candidate carries (GatePackageTests).
+func (j *WriteJournal) TestsPassed() bool {
+	if j == nil {
+		return false
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.lastTests == "passed"
 }
 
 // TestFailures is the span's last failing tests.
@@ -211,6 +236,8 @@ func journalTurn(ctx context.Context, workspace string, result *ExecutionResult)
 	j.Record(workspace, result.WrittenPaths, result.PreWriteContents)
 	if lines := turnTestFailureLines(result); lines != nil {
 		j.NoteTestFailures(lines)
+	} else if result.TestCheck.Verdict() == VerifyPassed {
+		j.NoteTestsPassed()
 	}
 }
 

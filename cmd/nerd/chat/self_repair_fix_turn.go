@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"codenerd/internal/logging"
 	"codenerd/internal/problemlog"
@@ -118,15 +121,26 @@ func (m Model) settleFixTurn() Model {
 	installed := jobInstalled(ledger, job)
 
 	var failures []string
-	var undoNote, diffPath string
+	var undoNote, diffPath, parked string
 	if journal != nil {
 		failures = journal.TestFailures()
 		if !installed {
+			// A chain stopped by its budget with its own package tests green
+			// parks its change: the slower gate it did not reach is what is
+			// left, and finishing costs only that (self_repair.mg
+			// self_repair_finish_due).
+			var after map[string]*string
+			if overBudget && job != "" && len(failures) == 0 && journal.TestsPassed() {
+				after = readTreeFiles(m.workspace, journal.Paths())
+			}
 			undo := journal.Undo()
 			diffPath = saveFixAttempt(m.workspace, job, undo.Patch, failures)
 			undoNote = describeFixUndo(undo, diffPath)
 			if undo.Err != nil {
 				log.Error("%s undoing the failed fix turn's edits: %v", selfDebugMarker, undo.Err)
+			}
+			if after != nil && undo.Err == nil && len(undo.Left) == 0 {
+				parked = parkCandidate(m.workspace, job, after, now)
 			}
 		}
 	}
@@ -146,20 +160,27 @@ func (m Model) settleFixTurn() Model {
 		status, note = problemlog.RepairOverBudget, fmt.Sprintf("its fix chain ran past its %s budget and was stopped", m.Config.Logging.SelfRepairFixBudget())
 	}
 	var n int
-	if job != "" {
+	switch {
+	case parked != "":
+		status = problemlog.RepairParked
+		note = fmt.Sprintf("its fix chain ran past its %s budget with its package tests green and the self-rebuild not run; the change is parked at %s with that evidence and is finished before a new target", m.Config.Logging.SelfRepairFixBudget(), parked)
+		n, err = ledger.Park(job, parked, note, now)
+	case job != "":
 		n, err = ledger.EndJob(job, status, note, now)
-	} else {
+	default:
 		n, err = ledger.EndFixing(status, note, now)
 	}
 	if err != nil {
 		log.Error("%s self-repair ledger: %v", selfDebugMarker, err)
 	}
-	if !installed && job != "" && (undoNote != "" || len(failures) > 0) {
+	if !installed && parked == "" && job != "" && (undoNote != "" || len(failures) > 0) {
 		if _, err := ledger.Annotate(job, undoNote, diffPath, failures); err != nil {
 			log.Error("%s self-repair ledger: %v", selfDebugMarker, err)
 		}
 	}
 	switch {
+	case n > 0 && status == problemlog.RepairParked:
+		m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair: the fix chain for %d target(s) ran past its %s budget with its own package tests green; the change is parked (%s) and will be finished -- the self-rebuild run on it -- before any new target.%s_", n, m.Config.Logging.SelfRepairFixBudget(), parked, sentence(undoNote)))
 	case n > 0 && status == problemlog.RepairOverBudget:
 		m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair: the fix chain for %d target(s) ran past its %s budget; they are recorded as over budget, which counts as a failure.%s_", n, m.Config.Logging.SelfRepairFixBudget(), sentence(undoNote)))
 	case n > 0 && stopped:
@@ -256,4 +277,128 @@ func describeFixUndo(undo session.JournalUndo, diffPath string) string {
 		parts = append(parts, "the attempt is saved at "+diffPath)
 	}
 	return strings.Join(parts, "; ")
+}
+
+// readTreeFiles reads each workspace-relative path as it stands: its content,
+// or nil when it does not exist.
+func readTreeFiles(workspace string, paths []string) map[string]*string {
+	out := make(map[string]*string, len(paths))
+	for _, p := range paths {
+		data, err := os.ReadFile(filepath.Join(workspace, filepath.FromSlash(p)))
+		if err != nil {
+			out[p] = nil
+			continue
+		}
+		s := string(data)
+		out[p] = &s
+	}
+	return out
+}
+
+// parkCandidate keeps a budget-stopped, package-green change: what each path
+// held after the chain (after) and, read now that the chain is undone, the
+// tree it applies to. It returns the manifest's workspace-relative path, or
+// "" when it could not be kept (logged; the attempt then ends as over budget).
+func parkCandidate(workspace, job string, after map[string]*string, now time.Time) string {
+	base := readTreeFiles(workspace, keysOf(after))
+	c := problemlog.ParkedCandidate{
+		Job:          job,
+		GatesPassed:  []string{problemlog.GatePackageTests},
+		GatesPending: []string{problemlog.GateSelfRebuild},
+		ParkedUnix:   now.Unix(),
+	}
+	for p, a := range after {
+		pp := problemlog.ParkedPath{Path: p, AfterExists: a != nil}
+		if a != nil {
+			pp.After = *a
+		}
+		if b := base[p]; b != nil {
+			pp.BaseExisted, pp.BaseHash = true, problemlog.ContentHash(*b)
+		}
+		c.Paths = append(c.Paths, pp)
+	}
+	rel, err := problemlog.SaveParkedCandidate(workspace, c)
+	if err != nil {
+		logging.Get(logging.CategoryKernel).Error("%s park the budget-stopped fix: %v", selfDebugMarker, err)
+		return ""
+	}
+	return rel
+}
+
+func keysOf(m map[string]*string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+// finishParkedCandidate finishes the parked candidate of job: on a tree that
+// still matches, its change is applied, its targets go back into their fix
+// turn, and the gate it had not reached -- the self-rebuild, build,
+// self-check and install -- runs; it then installs (pending restart) or fails
+// as any fix does, a failed one undone again. On a tree that moved, the
+// candidate is stale: dropped, and said so.
+func (m Model) finishParkedCandidate(ledger *problemlog.RepairLedger, job string, now time.Time) (Model, tea.Cmd) {
+	log := logging.Get(logging.CategoryKernel)
+	manifest := ledger.ParkedManifest(job)
+	c, err := problemlog.LoadParkedCandidate(m.workspace, manifest)
+	drop := func(note string) (Model, tea.Cmd) {
+		if _, err := ledger.DropParked(job, problemlog.RepairFailed, note, now); err != nil {
+			log.Error("%s self-repair ledger: %v", selfDebugMarker, err)
+		}
+		if m.kernel != nil {
+			if err := problemlog.ReplaceRepair(m.kernel, ledger, now); err != nil {
+				log.Warn("%s self-repair facts: %v", selfDebugMarker, err)
+			}
+		}
+		m = m.pushAssistantMsg("_Self-repair: " + note + "._")
+		return m, selfRepairCheck
+	}
+	if err != nil {
+		return drop(fmt.Sprintf("the parked fix of %s could not be read (%v) and was dropped", job, oneLine(err.Error())))
+	}
+	if stale := c.Stale(m.workspace); len(stale) > 0 {
+		return drop(fmt.Sprintf("the parked fix of %s is stale -- %s changed since it was parked -- and was dropped", job, strings.Join(stale, ", ")))
+	}
+	if !m.shouldRebuildWatchedExecutable(c.ChangedPaths()) {
+		return drop(fmt.Sprintf("the parked fix of %s cannot be finished here: this process cannot rebuild and install itself", job))
+	}
+	before := readTreeFiles(m.workspace, c.ChangedPaths())
+	if err := c.Apply(m.workspace); err != nil {
+		restoreTreeFiles(m.workspace, before)
+		return drop(fmt.Sprintf("the parked fix of %s could not be applied (%v) and was dropped", job, oneLine(err.Error())))
+	}
+	if _, err := ledger.Resume(job, now); err != nil {
+		log.Error("%s self-repair ledger: %v", selfDebugMarker, err)
+	}
+	if m.kernel != nil {
+		if err := problemlog.ReplaceRepair(m.kernel, ledger, now); err != nil {
+			log.Warn("%s self-repair facts: %v", selfDebugMarker, err)
+		}
+	}
+	m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair: finishing the parked fix of %s -- its change re-applied (%s), only the gate it had not reached runs: %s._",
+		job, strings.Join(c.ChangedPaths(), ", "), strings.Join(c.GatesPending, ", ")))
+	changed := c.ChangedPaths()
+	return m, func() tea.Msg {
+		// rebuildWatchedExecutable records the outcome in the ledger
+		// (selfRepairRebuilt: installed, or failed); a failed finish is
+		// undone so the tree is left as the candidate found it.
+		if err := m.rebuildWatchedExecutable(context.Background(), changed); err != nil {
+			restoreTreeFiles(m.workspace, before)
+		}
+		return selfRepairCheckMsg{}
+	}
+}
+
+// restoreTreeFiles writes each path back to what before held (nil removes).
+func restoreTreeFiles(workspace string, before map[string]*string) {
+	for p, b := range before {
+		full := filepath.Join(workspace, filepath.FromSlash(p))
+		if b == nil {
+			_ = os.Remove(full)
+			continue
+		}
+		_ = os.WriteFile(full, []byte(*b), 0o644)
+	}
 }

@@ -60,6 +60,9 @@ Decl self_optimize_candidate(Target, TotalMs) bound [/string, /number].
 Decl self_optimize_top(TotalMs) bound [/number].
 Decl self_optimize_due(Target) bound [/string].
 Decl self_repair_due(Target, Lane) bound [/string, /name].
+Decl self_repair_parked_job(Job) bound [/string].
+Decl self_repair_finish_due(Job) bound [/string].
+Decl self_repair_finish_due_any() bound [].
 Decl self_repair_shard(Persona) bound [/name].
 Decl self_repair_verified(Target) bound [/string].
 Decl self_repair_regressed(Target) bound [/string].
@@ -196,9 +199,25 @@ self_repair_held(Target) :-
 
 # --- What is due ---------------------------------------------------------------
 
+# A parked candidate first. A fix chain that ran out of budget with a change
+# green on its own gates and a slower gate unfinished parked it (the chat's
+# settleFixTurn: undone, kept with its evidence, /parked). Finishing it costs
+# only the gates that had not finished; choosing a new target would throw the
+# work away and pay for it again. So while one is parked and the slot is
+# open, it is due, and no new target is.
+self_repair_parked_job(Job) :-
+    self_repair_attempt(_, _, /parked, Job, _, _, _).
+
+self_repair_finish_due(Job) :-
+    self_repair_slot_open(),
+    self_repair_parked_job(Job).
+
+self_repair_finish_due_any() :- self_repair_finish_due(_).
+
 # Repair: every hot problem of codeNERD's own log that is not held.
 self_repair_fix_due(Signature) :-
     self_repair_slot_open(),
+    !self_repair_finish_due_any(),
     self_problem_hot(Signature, _, _),
     !self_repair_held(Signature).
 
@@ -230,6 +249,7 @@ self_optimize_top(Max) :-
 
 self_optimize_due(Target) :-
     self_repair_slot_open(),
+    !self_repair_finish_due_any(),
     !self_repair_fix_due_any(),
     self_optimize_top(Max),
     self_optimize_candidate(Target, Max).
