@@ -18,6 +18,7 @@ import (
 	"codenerd/internal/problemlog"
 	"codenerd/internal/projectdoc"
 	"codenerd/internal/selfrestart"
+	"codenerd/internal/session"
 )
 
 // selfRepairRig is a yolo chat on a real kernel with debug-self on, a pinned
@@ -80,7 +81,7 @@ const nilSessionError = "2026/10/28 06:19:54.100 [ERROR] [session] nil session i
 func TestSelfRepair_TheIdleTimerStartsTheChainUnasked(t *testing.T) {
 	t.Parallel()
 	r := newSelfRepairRig(t, "", "20261028_061954_problems.log", nilSessionError)
-	m, cmd := r.m.handleSelfRepairTick(selfRepairTickMsg{gen: 0})
+	m, cmd := landPlan(r.m.handleSelfRepairTick(selfRepairTickMsg{gen: 0}))
 	if cmd == nil {
 		t.Fatal("the tick neither started a job nor kept the timer going")
 	}
@@ -102,7 +103,7 @@ func TestSelfRepair_TheIdleTimerStartsTheChainUnasked(t *testing.T) {
 		t.Fatalf("the user is not told: %q", lastAssistant(m))
 	}
 	// While it runs, nothing else starts (logging.self_repair_max_jobs 1).
-	again, _ := m.selfRepairStep()
+	again, _ := stepSelfRepair(t, m)
 	if n := len(again.background.list()); n != 1 {
 		t.Fatalf("%d jobs after a second look, want the one", n)
 	}
@@ -120,7 +121,7 @@ func TestSelfRepair_ASessionNobodyTypedInStillFindsItsProblems(t *testing.T) {
 	t.Parallel()
 	r := newSelfRepairRig(t, "", "20261028_061954_problems.log", nilSessionError)
 	r.m.selfDebug = newSelfDebugWatcher() // never primed: no turn, no toggle
-	m, _ := r.m.selfRepairStep()
+	m, _ := stepSelfRepair(t, r.m)
 	if n := len(m.background.list()); n != 1 {
 		t.Fatalf("%d self-repair jobs, want the one for the logged error", n)
 	}
@@ -146,7 +147,7 @@ func TestSelfRepair_NeverStartsBesideTheUsersWork(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			r := newSelfRepairRig(t, "", "20261028_061954_problems.log", nilSessionError)
 			mutate(&r.m)
-			m, _ := r.m.selfRepairStep()
+			m, _ := stepSelfRepair(t, r.m)
 			if n := len(m.background.list()); n != 0 {
 				t.Fatalf("a self-repair started beside %s", name)
 			}
@@ -209,7 +210,7 @@ func TestSelfRepair_WalksTriggerJobFixRebuildRestoreResumeVerify(t *testing.T) {
 	rebuild.install(t, &r.m, func(_ string, a []string, _ []string) error { argv = a; return nil })
 
 	// 1. Trigger: the timer, unasked.
-	m, cmd := r.m.handleSelfRepairTick(selfRepairTickMsg{gen: 0})
+	m, cmd := landPlan(r.m.handleSelfRepairTick(selfRepairTickMsg{gen: 0}))
 	jobs := m.background.list()
 	if len(jobs) != 1 {
 		t.Fatalf("no self-repair job started: %+v", jobs)
@@ -251,7 +252,7 @@ func TestSelfRepair_WalksTriggerJobFixRebuildRestoreResumeVerify(t *testing.T) {
 	m.isLoading = false // the fix turn ends
 
 	// Nothing new starts while the fix waits for its restart.
-	m, _ = m.selfRepairStep()
+	m, _ = stepSelfRepair(t, m)
 	if a, _ := r.ledger(t).Get(sig); a.Status != problemlog.RepairPendingRestart {
 		t.Fatalf("idle after the install: %+v", a)
 	}
@@ -283,7 +284,7 @@ func TestSelfRepair_WalksTriggerJobFixRebuildRestoreResumeVerify(t *testing.T) {
 	fresh.advance(time.Hour)
 	fresh.m.sessionID = restore.SessionID
 	fresh.m.restore = restore
-	fresh.m = fresh.m.applyRestore()
+	fresh.m = fresh.m.applyRestore(session.LoadSessionHistory(fresh.m.workspace, restore.SessionID))
 	if !strings.Contains(lastAssistant(fresh.m), "Resuming once the workspace scan completes") {
 		t.Fatalf("the restore notice does not say what resumes:\n%s", lastAssistant(fresh.m))
 	}
@@ -303,12 +304,12 @@ func TestSelfRepair_WalksTriggerJobFixRebuildRestoreResumeVerify(t *testing.T) {
 	_, _ = fresh.m.turn.dequeue() // the queued turn runs and ends
 
 	// 6. Verification: taken up at load; clean through the window; verified.
-	fresh.m, _ = fresh.m.selfRepairStep()
+	fresh.m, _ = stepSelfRepair(t, fresh.m)
 	if a, _ := fresh.ledger(t).Get(sig); a.Status != problemlog.RepairVerifying {
 		t.Fatalf("the new process did not take the fix up: %+v", a)
 	}
 	fresh.advance(time.Duration(config.DefaultSelfRepairVerifyWindowSec+1) * time.Second)
-	fresh.m, _ = fresh.m.selfRepairStep()
+	fresh.m, _ = stepSelfRepair(t, fresh.m)
 	if a, _ := fresh.ledger(t).Get(sig); a.Status != problemlog.RepairVerified {
 		t.Fatalf("after a clean window: %+v, want verified", a)
 	}
@@ -337,14 +338,14 @@ func TestSelfRepair_ARecurringProblemRegressesAndTheRetryIsToldSo(t *testing.T) 
 	fresh := newSelfRepairRig(t, r.m.workspace, "20261112_090000_problems.log",
 		"2026/11/12 09:05:00.000 [ERROR] [session] nil session in executor dispatch: panic recovered\n")
 	*fresh.now = took
-	fresh.m, _ = fresh.m.selfRepairStep()
+	fresh.m, _ = stepSelfRepair(t, fresh.m)
 	a, _ := fresh.ledger(t).Get(sigs[0])
 	if a.Status != problemlog.RepairRegressed || a.Failures != 1 || !strings.Contains(a.Note, "did not hold") {
 		t.Fatalf("a recurring problem: %+v, want regressed with a note", a)
 	}
 	// Past its cooldown it is due again, and the diagnosis says what failed.
 	fresh.advance(time.Duration(config.DefaultSelfRepairCooldownSec+1) * time.Second)
-	fresh.m, _ = fresh.m.selfRepairStep()
+	fresh.m, _ = stepSelfRepair(t, fresh.m)
 	jobs := fresh.m.background.list()
 	if len(jobs) != 1 || !strings.Contains(jobs[0].Task, "Do not repeat what they did") || !strings.Contains(jobs[0].Task, "did not hold") {
 		t.Fatalf("the retry is not told the earlier fix failed: %+v", jobs)
@@ -488,13 +489,13 @@ func TestSelfRepair_OptimizesTheCostliestOperationOnceNothingIsHot(t *testing.T)
 		t.Fatal(err)
 	}
 	// Before the boot settles, nothing is the steady state's: no optimize job.
-	if m, _ := r.m.selfRepairStep(); len(m.background.list()) != 0 {
+	if m, _ := stepSelfRepair(t, r.m); len(m.background.list()) != 0 {
 		t.Fatalf("an optimize job started before the boot settled: %+v", m.background.list())
 	}
 	// The startup scan completes: the boot has settled.
 	r.m.isBooting, r.m.bootStage = true, BootStageScanning
 	r.m, _, _ = r.m.handleScanCompleteMsg(scanCompleteMsg{})
-	m, cmd := r.m.selfRepairStep()
+	m, cmd := stepSelfRepair(t, r.m)
 	jobs := m.background.list()
 	if cmd == nil || len(jobs) != 1 || jobs[0].SelfRepair != problemlog.LaneOptimize {
 		t.Fatalf("no optimize job: %+v", jobs)

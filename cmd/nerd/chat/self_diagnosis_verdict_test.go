@@ -72,7 +72,7 @@ const providerOutage = "2026/10/28 06:20:10.000 [ERROR] [api] provider returned 
 // applies the job's result: what finishBackground did with it.
 func diagnoseOnce(t *testing.T, r selfRepairRig) (Model, bool) {
 	t.Helper()
-	m, cmd := r.m.handleSelfRepairTick(selfRepairTickMsg{gen: 0})
+	m, cmd := landPlan(r.m.handleSelfRepairTick(selfRepairTickMsg{gen: 0}))
 	if len(m.background.list()) != 1 {
 		t.Fatalf("no self-repair job started: %+v", m.background.list())
 	}
@@ -113,7 +113,7 @@ func TestSelfRepair_NoDefectVerdictStartsNoFixTurn(t *testing.T) {
 
 	// Past the cooldown, on the same evidence: not tried again.
 	r.advance(time.Duration(config.DefaultSelfRepairCooldownSec+60) * time.Second)
-	m, _ = m.selfRepairStep()
+	m, _ = stepSelfRepair(t, m)
 	if n := len(m.background.list()); n != 0 {
 		t.Fatalf("%d jobs: a no-defect target was retried on the same evidence", n)
 	}
@@ -191,7 +191,7 @@ func TestSelfRepair_PerTargetVerdictSplitsTheJob(t *testing.T) {
 	}
 	withVerdictJev(&r, &verdictJev{def: 0.5, byMessage: map[string]float64{"nil session": 0.92, "overloaded": 0.03}})
 
-	m, cmd := r.m.handleSelfRepairTick(selfRepairTickMsg{gen: 0})
+	m, cmd := landPlan(r.m.handleSelfRepairTick(selfRepairTickMsg{gen: 0}))
 	done := runBatchFor[backgroundDoneMsg](t, cmd)
 	if len(done.Job.diagnosed) != 2 {
 		t.Fatalf("the job diagnosed %+v, want both problems", done.Job.diagnosed)
@@ -321,7 +321,7 @@ func TestSelfRepair_AFixTurnTheUserStoppedIsNotAFailure(t *testing.T) {
 		t.Fatal("the fix turn could not be stopped")
 	}
 	r.m.turn.end(id)
-	m, _ := r.m.selfRepairStep()
+	m, _ := stepSelfRepair(t, r.m)
 	if a, _ := r.ledger(t).Get(sig); a.Status != problemlog.RepairStopped || a.Failures != 0 {
 		t.Fatalf("a stopped fix turn settled %+v, want stopped with no failure", a)
 	}

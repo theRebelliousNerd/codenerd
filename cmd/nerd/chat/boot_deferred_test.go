@@ -2,11 +2,14 @@ package chat
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	"codenerd/cmd/nerd/ui"
 	"codenerd/internal/approval"
+	"codenerd/internal/selfrestart"
+	"codenerd/internal/session"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -186,6 +189,31 @@ func TestBootComplete_ErrorPathUnchanged(t *testing.T) {
 	}
 	if got.err == nil {
 		t.Error("err = nil after boot failure, want the boot error surfaced")
+	}
+}
+
+// A boot that resumes a restart's session appends the conversation the boot
+// command read: the handler reads no session file on the Update thread. Live
+// 2026-11-12 a resumed 1043-message session's boot handler took 171ms.
+func TestBootComplete_RestoresTheConversationTheBootCommandRead(t *testing.T) {
+	b := bootTestBroker(t)
+	m := bootTestModel(t, b)
+	m.workspace = t.TempDir() // holds no session file
+	m.restore = &selfrestart.State{SessionID: "sess-restored", OldBuild: "aaaa", NewBuild: "bbbb"}
+	read := &session.SessionHistory{SessionID: "sess-restored", Messages: []session.ChatMessage{
+		{Role: "user", Content: "fix the retry loop"},
+		{Role: "assistant", Content: "Fixed the retry loop."},
+	}}
+	updated, _ := m.Update(bootCompleteMsg{components: &SystemComponents{SessionID: "sess-restored", Approvals: b}, restored: read})
+	got := updated.(Model)
+	text := strings.Join(contents(got.history), "\n")
+	for _, want := range []string{"fix the retry loop", "Fixed the retry loop.", "session restored"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("restored history lacks %q:\n%s", want, text)
+		}
+	}
+	if got.restore != nil {
+		t.Fatal("the restore state was not taken up")
 	}
 }
 

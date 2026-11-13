@@ -54,6 +54,9 @@ type selfRepairState struct {
 	journalJob string
 	// gen numbers the timer loop; a tick of an older loop stops.
 	gen uint64
+	// planning is set while a look's plan is made off the Update thread
+	// (planSelfRepair) and cleared when it lands: never two at once.
+	planning bool
 	// now is the clock, audit names this process's audit log (the timings'
 	// source) and problems its problems log; tests pin all three.
 	now      func() time.Time
@@ -154,10 +157,19 @@ func (m Model) selfRepairBusy() bool {
 		m.hasPendingRestart() || len(m.resumeWork) > 0
 }
 
-// selfRepairStep is one idle look: settle what ended, refresh the evidence,
-// adopt verdicts, and start the chain for what the kernel says is due.
+// selfRepairStep is one idle look, phase A of three (self_repair_plan.go has
+// B and C): on the Update thread it only settles what ended -- the fix turn
+// this process ran, a fixing phase whose turn is gone, a diagnosis whose job
+// was lost -- then hands the rest to a command. Refreshing the evidence,
+// asking the kernel for verdicts and what is due, and building the job
+// (whose triage is a Jev call) run off the Update thread (planSelfRepair);
+// what they found lands as a selfRepairPlanMsg (landSelfRepairPlan). A look
+// that finds the last one's plan still being made does nothing.
 func (m Model) selfRepairStep() (Model, tea.Cmd) {
 	if m.selfRepair == nil || m.kernel == nil || !m.debugSelfEnabled() || m.selfRepairBusy() {
+		return m, nil
+	}
+	if m.selfRepair.planInFlight() {
 		return m, nil
 	}
 	log := logging.Get(logging.CategoryKernel)
@@ -193,47 +205,7 @@ func (m Model) selfRepairStep() (Model, tea.Cmd) {
 			}
 		}
 	}
-
-	if err := m.syncSelfRepairEvidence(ledger, now); err != nil {
-		log.Warn("%s self-repair evidence: %v", selfDebugMarker, err)
-		return m, nil
-	}
-	m = m.adoptSelfRepairVerdicts(ledger, now)
-
-	due, err := problemlog.DueTargets(m.kernel)
-	if err != nil {
-		log.Warn("%s self-repair: %v", selfDebugMarker, err)
-		return m, nil
-	}
-	if len(due) == 0 {
-		return m, nil
-	}
-	job, ok, reason := m.selfRepairJob(m.shutdownCtx, due, ledger, now)
-	if !ok {
-		log.Info("%s self-repair due but not started: %s", selfDebugMarker, reason)
-		return m, nil
-	}
-	targets := job.selfRepairTargets
-	baselines := map[string]int64{}
-	if job.SelfRepair == problemlog.LaneOptimize {
-		for _, t := range targets {
-			if tm, ok := m.selfRepair.timing.Lookup(t); ok {
-				// The steady state's mean, the one the lane ranked and the
-				// verdict compares (self_timing_settled).
-				baselines[t] = tm.SettledMeanMs()
-			}
-		}
-	}
-	if err := ledger.Begin(targets, job.SelfRepair, job.ID, baselines, now); err != nil {
-		log.Error("%s self-repair not started, its ledger cannot record it: %v", selfDebugMarker, err)
-		return m, nil
-	}
-	if err := problemlog.ReplaceRepair(m.kernel, ledger, now); err != nil {
-		log.Warn("%s self-repair facts: %v", selfDebugMarker, err)
-	}
-	m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair (debug-self): the %s shard is diagnosing %s in the background. Its fix follows as a turn of its own; your messages go first._",
-		job.Shard, selfRepairSubject(job.SelfRepair, targets)))
-	return m, m.startBackground(job, job.Task)
+	return m, m.planSelfRepairCmd(ledger, now)
 }
 
 func selfRepairSubject(lane string, targets []string) string {
@@ -241,63 +213,6 @@ func selfRepairSubject(lane string, targets []string) string {
 		return "codeNERD's costliest recurring operation, " + strings.TrimPrefix(strings.Join(targets, ", "), problemlog.TimingTargetPrefix)
 	}
 	return fmt.Sprintf("%d of codeNERD's own hot problem(s)", len(targets))
-}
-
-// syncSelfRepairEvidence puts the run's timings and the ledger into the
-// kernel beside the problems log (syncSelfProblemFacts).
-func (m Model) syncSelfRepairEvidence(ledger *problemlog.RepairLedger, now time.Time) error {
-	// Follow the problems log as a turn would, so a session nobody has typed
-	// in yet still sees its own problems. The drained lines stay pending:
-	// the next turn's digest still reports them.
-	if m.selfDebug != nil {
-		m.selfDebug.collect(m.selfRepair.problemsLog())
-	}
-	m.syncSelfProblemFacts()
-	// This process's own audit log only: a fix is judged by the timings of
-	// the process running it, never by an earlier run's.
-	if err := m.selfRepair.timing.Read(m.selfRepair.auditLog()); err != nil {
-		return err
-	}
-	if m.selfRepair.timing.Changed() {
-		if err := problemlog.ReplaceTimings(m.kernel, m.selfRepair.timing.Timings()); err != nil {
-			return err
-		}
-	}
-	return problemlog.ReplaceRepair(m.kernel, ledger, now)
-}
-
-// adoptSelfRepairVerdicts records the kernel's verdicts on the fixes this
-// process runs, and says them.
-func (m Model) adoptSelfRepairVerdicts(ledger *problemlog.RepairLedger, now time.Time) Model {
-	verified, regressed, err := problemlog.Verdicts(m.kernel)
-	if err != nil {
-		logging.Get(logging.CategoryKernel).Warn("%s self-repair verdicts: %v", selfDebugMarker, err)
-		return m
-	}
-	changed := false
-	for _, t := range verified {
-		if ok, err := ledger.Verdict(t, problemlog.RepairVerified, "", now); err == nil && ok {
-			changed = true
-			m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair verified after the restart: %s._", selfRepairTargetLabel(t)))
-		}
-	}
-	for _, t := range regressed {
-		a, _ := ledger.Get(t)
-		note := fmt.Sprintf("the fix installed as build %s did not hold: the problem came back in the process running it", a.Build)
-		if a.Lane == problemlog.LaneOptimize {
-			note = fmt.Sprintf("the optimization installed as build %s did not make it faster than its %dms mean", a.Build, a.BaselineMs)
-		}
-		if ok, err := ledger.Verdict(t, problemlog.RepairRegressed, note, now); err == nil && ok {
-			changed = true
-			m = m.pushAssistantMsg(fmt.Sprintf("_Self-repair regressed: %s; %s. A retry is told so and must find another cause._", selfRepairTargetLabel(t), note))
-		}
-	}
-	if changed {
-		if err := problemlog.ReplaceRepair(m.kernel, ledger, now); err != nil {
-			logging.Get(logging.CategoryKernel).Warn("%s self-repair facts: %v", selfDebugMarker, err)
-		}
-	}
-	return m
 }
 
 func selfRepairTargetLabel(t string) string {

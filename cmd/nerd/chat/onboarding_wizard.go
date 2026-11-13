@@ -383,13 +383,17 @@ func getAPIProviderPrompt() string {
 Enter provider name or number:`
 }
 
-// checkFirstRun checks if this is a first run and triggers onboarding if needed.
-func checkFirstRun(workspace string) tea.Cmd {
+// checkFirstRun checks if this is a first run and triggers onboarding if
+// needed. It also opens the session's preferences (openPreferences: an
+// existing user's migration, the reload, the session counted), so the
+// handler does no disk I/O on the Update thread.
+func checkFirstRun(workspace string, prefs *ux.PreferencesManager) tea.Cmd {
 	return func() tea.Msg {
 		isFirst := ux.ShouldShowOnboarding(workspace)
 		return onboardingCheckMsg{
 			IsFirstRun: isFirst,
 			Workspace:  workspace,
+			opening:    openPreferences(workspace, prefs, !isFirst),
 		}
 	}
 }

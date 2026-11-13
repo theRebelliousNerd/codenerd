@@ -66,9 +66,9 @@ func (c *Compressor) GetCompressionRatio() float64 {
 
 // GetBudgetUtilization returns the fraction of the configured context budget used.
 // Safe for UI display; returns 0 when budget is unavailable.
+//
+// It does not take c.mu (see GetBudgetUsage).
 func (c *Compressor) GetBudgetUtilization() float64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
 	if c.budget == nil || c.config.TotalBudget == 0 {
 		return 0
 	}
@@ -77,9 +77,13 @@ func (c *Compressor) GetBudgetUtilization() float64 {
 
 // GetBudgetUsage returns (used, total) token counts for the context window.
 // This is approximate and based on the internal token counter heuristic.
+//
+// The chat's footer calls it on every Update and View. It does not take
+// c.mu: BuildContext holds that for its whole build, which scores the world
+// model (2.6s live on 2026-11-12, when the chat's memUsageMsg handler waited
+// 1.98s behind it). It needs no compressor lock: c.budget and c.config are
+// set at construction and never replaced, and the budget locks itself.
 func (c *Compressor) GetBudgetUsage() (int, int) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
 	if c.budget == nil {
 		return 0, c.config.TotalBudget
 	}

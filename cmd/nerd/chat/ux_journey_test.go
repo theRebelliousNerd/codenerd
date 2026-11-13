@@ -44,7 +44,7 @@ func TestUXJourney_WhenASessionEarnsIt_ShouldMoveTheUserOn(t *testing.T) {
   "metrics":{"sessions_count":14,"successful_tasks":19,"clarifications_needed":1}}`)
 	m := uxModel(t, ws)
 
-	m = m.openSessionRecord(nil, nil)
+	m = m.openSessionRecord(openPreferences(ws, m.preferencesMgr, false))
 	m.recordUXMetric("successful_tasks")
 	m.closeSessionRecord()
 
@@ -58,6 +58,39 @@ func TestUXJourney_WhenASessionEarnsIt_ShouldMoveTheUserOn(t *testing.T) {
 	}
 	if prefs.UserJourney.State != ux.StateProductive {
 		t.Fatalf("journey state = %s, want productive after 15 sessions and 20 tasks", prefs.UserJourney.State)
+	}
+}
+
+// The first-run check opens the session's preferences in its command -- the
+// migration, the reload, the session counted -- and its handler on the Update
+// thread touches no file.
+func TestOnboardingCheck_OpensPreferencesOffTheUpdateThread(t *testing.T) {
+	t.Parallel()
+	const old = `{"version":"1.0","user_journey":{"state":"learning","onboarding_completed":true},"metrics":{"sessions_count":3}}`
+	ws := uxWorkspace(t, old)
+	m := uxModel(t, ws)
+	prefsPath := filepath.Join(ws, ".nerd", "preferences.json")
+
+	msg, ok := checkFirstRun(ws, m.preferencesMgr)().(onboardingCheckMsg)
+	if !ok || msg.IsFirstRun {
+		t.Fatalf("check = %+v, want an existing user", msg)
+	}
+	if msg.opening.migration == nil || !msg.opening.migration.WasMigrated {
+		t.Fatalf("the command did not migrate the preferences: %+v", msg.opening)
+	}
+	if got := m.preferencesMgr.Get().Metrics.SessionsCount; got != 4 {
+		t.Fatalf("sessions counted in the command = %d, want 4", got)
+	}
+	// Whatever the file holds now, the handler leaves it be.
+	if err := os.WriteFile(prefsPath, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	next, _ := m.Update(msg)
+	if data, _ := os.ReadFile(prefsPath); string(data) != old {
+		t.Fatalf("the handler wrote the preferences on the Update thread:\n%s", data)
+	}
+	if next.(Model).sessionOpenedAt.IsZero() {
+		t.Fatal("the session record was not opened")
 	}
 }
 

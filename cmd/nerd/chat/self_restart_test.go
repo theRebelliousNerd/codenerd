@@ -16,6 +16,7 @@ import (
 	"codenerd/internal/core"
 	"codenerd/internal/perception"
 	"codenerd/internal/selfrestart"
+	"codenerd/internal/session"
 	nerdsystem "codenerd/internal/system"
 )
 
@@ -86,7 +87,7 @@ func TestSelfRestart_TheSessionRoundTripsThroughTheRestoreFile(t *testing.T) {
 	fresh.workspace = old.workspace
 	fresh.sessionID = restore.SessionID
 	fresh.restore = restore
-	fresh = fresh.applyRestore()
+	fresh = fresh.applyRestore(session.LoadSessionHistory(fresh.workspace, restore.SessionID))
 
 	text := strings.Join(contents(fresh.history), "\n")
 	for _, want := range []string{"fix the retry loop", "Fixed the retry loop", "codeNERD updated (aaaa → bbbb build), session restored", "the offered next step: run the integration tests", "then refactor the backoff"} {
@@ -343,7 +344,7 @@ func TestSelfRestart_PausesAndAutoResumesRecurseAcrossRebuild(t *testing.T) {
 	fresh.workspace = old.workspace
 	fresh.sessionID = restore.SessionID
 	fresh.restore = restore
-	fresh = fresh.applyRestore()
+	fresh = fresh.applyRestore(session.LoadSessionHistory(fresh.workspace, restore.SessionID))
 	if !fresh.resumeRecurse || len(fresh.resumeRecurseArgs) != 4 {
 		t.Fatalf("applyRestore did not restore recurse resume: %+v", fresh.resumeRecurseArgs)
 	}

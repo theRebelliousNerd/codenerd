@@ -14,7 +14,6 @@ import (
 	"codenerd/internal/logging"
 	"codenerd/internal/shards"
 	"codenerd/internal/transparency"
-	"codenerd/internal/ux"
 
 	"codenerd/internal/sessionlog"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -633,20 +632,20 @@ The strategic knowledge base has been updated with new documentation.%s`, msg.do
 		return m.handleSelfRepairTick(msg)
 	case selfRepairCheckMsg:
 		return m.selfRepairStep()
+	case selfRepairPlanMsg:
+		return m.landSelfRepairPlan(msg)
 	case policyReloadMsg:
 		return m.handlePolicyReload(msg)
 	case bootDeferredMsg:
 		return m.handleBootDeferredMsg(msg)
 	case onboardingCheckMsg:
 		// Handle first-run detection result
+		// The command opened the preferences: an existing user's migrated
+		// silently, a new user's left for the wizard.
+		m = m.openSessionRecord(msg.opening)
 		if msg.IsFirstRun {
-			// Start onboarding wizard for new users
-			m = m.openSessionRecord(nil, nil)
 			return m.startOnboarding()
 		}
-		// Existing user - run migration silently, then open the session on
-		// the migrated preferences.
-		m = m.openSessionRecord(ux.MigratePreferences(msg.Workspace))
 		return m, nil
 
 	case onboardingCompleteMsg:
@@ -881,7 +880,7 @@ func (m Model) handleBootCompleteMsg(msg bootCompleteMsg) (tea.Model, tea.Cmd) {
 	// A restart onto a rebuilt binary resumes its session here, once the
 	// boot (under the same session id) has wired the kernel; and every
 	// session watches for the next rebuild.
-	m = m.applyRestore()
+	m = m.applyRestore(msg.restored, msg.restoredErr)
 	rebuildWatch := tea.Batch(m.startRebuildWatch(), m.startSelfRepairTimer())
 	var policyReloads tea.Cmd
 	if m.cortex != nil && m.cortex.DevPolicyDir() != "" {
@@ -1139,7 +1138,7 @@ func (m Model) handleScanCompleteMsg(msg scanCompleteMsg) (Model, tea.Cmd, bool)
 		// warning but can still use slash commands.
 		return m, tea.Batch(
 			persistCmd,
-			checkFirstRun(m.workspace),
+			checkFirstRun(m.workspace, m.preferencesMgr),
 			m.performWelcomeHealthCheck(msg),
 			resumeCmd,
 		), true

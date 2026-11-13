@@ -146,7 +146,7 @@ func TestSelfRepair_AFailedFixTurnUndoesOnlyItsOwnWritesAndTheRetryIsToldWhy(t *
 	r.m.verifier.SetKernel(r.m.kernel)
 	r.m.verifier.SetTaskExecutor(worker)
 
-	m, cmd := r.m.handleSelfRepairTick(selfRepairTickMsg{gen: 0})
+	m, cmd := landPlan(r.m.handleSelfRepairTick(selfRepairTickMsg{gen: 0}))
 	jobs := m.background.list()
 	if len(jobs) != 1 {
 		t.Fatalf("no self-repair job started: %+v", jobs)
@@ -215,7 +215,7 @@ func TestSelfRepair_AFailedFixTurnUndoesOnlyItsOwnWritesAndTheRetryIsToldWhy(t *
 
 	// The retry, after the cooldown, is told what was tried and what failed.
 	r.advance(time.Duration(config.DefaultSelfRepairCooldownSec+1) * time.Second)
-	m, _ = m.selfRepairStep()
+	m, _ = stepSelfRepair(t, m)
 	var retry *backgroundJob
 	for _, j := range m.background.list() {
 		if j.ID != job {

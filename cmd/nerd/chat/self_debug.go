@@ -212,7 +212,12 @@ func shortSelfSeen(s string) string {
 // batch; consume() clears it once a turn actually delivered it, so a turn
 // that exits before articulation never loses problems.
 type selfDebugWatcher struct {
-	mu         sync.Mutex
+	mu sync.Mutex
+	// replaceMu serializes a projection with its kernel replace
+	// (syncSelfProblemFacts): a turn and a self-repair look run it from
+	// different goroutines, and two interleaved retract-then-assert pairs
+	// would leave both projections' facts standing.
+	replaceMu  sync.Mutex
 	path       string
 	offset     int64
 	pending    []SelfProblem
@@ -230,6 +235,22 @@ type selfDebugWatcher struct {
 	projected       bool
 	projectedPath   string
 	projectedOffset int64
+	// switchedOff is set when /debug-self off retracted the kernel's facts and
+	// cleared when it is primed on again: a sync still running from a Model
+	// taken before the switch must not assert them back.
+	switchedOff bool
+}
+
+func (w *selfDebugWatcher) setSwitchedOff(off bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.switchedOff = off
+}
+
+func (w *selfDebugWatcher) isSwitchedOff() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.switchedOff
 }
 
 func newSelfDebugWatcher() *selfDebugWatcher {
@@ -252,6 +273,7 @@ func (w *selfDebugWatcher) prime(path string) {
 	w.moreInFile = false
 	w.reported = make(map[string]int)
 	w.projected = false
+	w.switchedOff = false
 	if path != "" {
 		if fi, err := os.Stat(path); err == nil {
 			w.offset = fi.Size()
@@ -457,9 +479,18 @@ func pendingSelfProblemsForTurn(m Model) PendingProblems {
 // failures are logged under selfDebugMarker so the watcher does not report
 // its own note as a new problem. A nil kernel (pre-boot toggle) is fine: the
 // next turn's collect syncs once the kernel exists.
+//
+// It runs from a turn's goroutine and from a self-repair look's
+// (planSelfRepair) as well as the Update thread, so the whole sync holds the
+// watcher's replaceMu, and a sync from a Model copy taken while debug-self was
+// on does nothing once /debug-self off has retracted the facts (switchedOff).
 func (m Model) syncSelfProblemFacts() {
 	if m.kernel == nil {
 		return
+	}
+	if m.selfDebug != nil {
+		m.selfDebug.replaceMu.Lock()
+		defer m.selfDebug.replaceMu.Unlock()
 	}
 	log := logging.Get(logging.CategoryKernel)
 	if !m.debugSelfEnabled() {
@@ -471,10 +502,11 @@ func (m Model) syncSelfProblemFacts() {
 		}
 		if m.selfDebug != nil {
 			m.selfDebug.forgetProjection()
+			m.selfDebug.setSwitchedOff(true)
 		}
 		return
 	}
-	if m.selfDebug == nil {
+	if m.selfDebug == nil || m.selfDebug.isSwitchedOff() {
 		return
 	}
 	if err := config.EnsureParams(m.kernel, m.Config.Logging.Params()); err != nil {

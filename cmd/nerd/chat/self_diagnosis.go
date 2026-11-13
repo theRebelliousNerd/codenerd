@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"codenerd/internal/config"
@@ -120,6 +121,11 @@ func (m Model) triageProblems(ctx context.Context, hot []problemlog.Problem) (de
 		return hot, nil
 	}
 	log := logging.Get(logging.CategoryKernel)
+	// A self-repair look triages off the Update thread while a turn may run
+	// a user's own self-diagnosis: one triage at a time, so neither splits
+	// its problems by the other's judgments.
+	triageMu.Lock()
+	defer triageMu.Unlock()
 	// Last chain's judgments go first: a failed triage must not leave them
 	// splitting this one.
 	if err := m.kernel.Retract(turnjudge.TriagePredicate); err != nil {
@@ -146,6 +152,10 @@ func (m Model) triageProblems(ctx context.Context, hot []problemlog.Problem) (de
 	}
 	return defects, around
 }
+
+// triageMu serializes triageProblems: its judgments are retracted, asserted
+// and read back as one step (self_problem_triage is the kernel's, shared).
+var triageMu sync.Mutex
 
 // writeProblems numbers problems from after, each with its whole first message.
 func writeDiagnosisProblems(b *strings.Builder, problems []problemlog.Problem, after int) int {

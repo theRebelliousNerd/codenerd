@@ -920,6 +920,11 @@ type (
 	bootCompleteMsg struct {
 		components *SystemComponents
 		err        error
+		// restored is the conversation of the session a restart resumes,
+		// read by the boot command (performSystemBoot); restoredErr says why
+		// it could not be.
+		restored    *session.SessionHistory
+		restoredErr error
 	}
 	// bootDeferredMsg carries the slow boot wiring off the Update loop.
 	// handleBootCompleteMsg stays under the 100ms target by returning fast with
@@ -960,6 +965,8 @@ type (
 	onboardingCheckMsg struct {
 		IsFirstRun bool
 		Workspace  string
+		// opening is the session's preferences, opened by the command.
+		opening sessionOpening
 	}
 
 	// knowledgeGatheredMsg signals that specialist consultations are complete.

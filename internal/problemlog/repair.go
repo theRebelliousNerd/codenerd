@@ -118,10 +118,13 @@ type FixWindow struct {
 // for concurrent use: the chat's Update thread and the command goroutine that
 // installs a rebuilt binary both record into it.
 type RepairLedger struct {
-	mu       sync.Mutex
-	path     string
-	attempts map[string]*RepairAttempt
-	windows  []FixWindow
+	mu sync.Mutex
+	// replaceMu serializes ReplaceRepair's retract-then-assert into a kernel:
+	// two interleaved would leave both projections, and two clocks, standing.
+	replaceMu sync.Mutex
+	path      string
+	attempts  map[string]*RepairAttempt
+	windows   []FixWindow
 }
 
 const ledgerVersion = 1
@@ -506,10 +509,15 @@ func (l *RepairLedger) WindowFacts(now time.Time) []types.Fact {
 
 // ReplaceRepair swaps the kernel's ledger facts and clock for the ledger's
 // current state at now. Every retraction error and the assert error come back
-// joined.
+// joined. Replaces of one ledger never interleave: the chat's Update thread,
+// its self-repair look and the rebuild goroutine all call it.
 func ReplaceRepair(k Kernel, l *RepairLedger, now time.Time) error {
 	if k == nil {
 		return errors.New("problemlog: nil Kernel")
+	}
+	if l != nil {
+		l.replaceMu.Lock()
+		defer l.replaceMu.Unlock()
 	}
 	var errs []error
 	for _, pred := range RepairPredicates {
