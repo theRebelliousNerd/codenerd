@@ -6653,3 +6653,34 @@ mean). The diagnosis took about 3.5 minutes and named
 assert-then-query interleaving. The verdict let the fix through and a single
 coder chain step (`/refactor`) started unattended. Outcome recorded below when
 it settles.
+
+## Autonomous self-repair, outcomes of the first live session (2026-11-12, 17:17-20:15)
+
+Three fix turns ran unattended; none ended installed.
+
+| # | Lane, target | What it did | How it ended |
+|---|---|---|---|
+| 1 | optimize, `timing:kernel.evaluate` | `LoadFactsSeq` passes its loaded predicates to `rebuild` | Its own new tests were an invalid Mangle program; repair cap reached; 1.63M input tokens, about 40 min. Left its edits in the tree. |
+| 2 | repair, its own failure lines | Appended Decl text to the analysis error | Failed verification after about 50 min. Left its edits in the tree. |
+| 3 | optimize, `timing:kernel.Query` | Per-program index for bare-predicate queries, five tests | Tests pass alone in 6 s, but the turn had no verdict after 55 min; stopped by hand. Landed by hand with a cache-eviction amendment. |
+
+What worked live: the kernel-derived trigger with no input, the in-place restart
+onto a rebuilt binary (same PID, session restored, three times), and the Jev
+verdict gate, which settled seven of its own failure lines as no_defect with no
+fix turn.
+
+Defects found and fixed the same day: a failed fix left its edits behind (now
+undone from a write journal, the attempt saved for the retry); the loop took its
+own failure lines as targets (now held, and logged at INFO); boot-time
+evaluations chose the optimize target (now settled timings only); a restart
+right after a stop lost the journal (the restart check settles the fix first).
+
+Open, in order of what blocks a first verified repair:
+- A correct, tested change could not pass the turn's own gates in under an hour
+  on a loaded host. No timeline of where attempt 3's time went exists yet, and
+  there is no time or token budget on an autonomous fix turn.
+- The self-repair check runs on the TUI's Update thread (523 ms observed).
+  Unfinished work on branch `worktree-agent-a216645aa5422a606`, not verified.
+- One fix turn cost 1.63M input tokens; per-request size is not logged.
+- Every fix so far targeted `internal/core`, where an edit selects about 6,000
+  importer tests.
