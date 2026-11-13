@@ -322,7 +322,7 @@ Correction:
 
 Evidence:
 
-- Migration run: 2026-06-27 `proof-forge-discovery-run` direct skill package port.
+- Migration run: 2026-06-27 direct skill package port of a discovery-run skill.
 - Validation: `python -m py_compile` for the distiller; `nlc check` for both
   honesty `.nl` assets; `nlc saturate` derived `falsifier_passed(yes)`; the
   migrated distiller rendered the shared honesty card from the `.codex` package.
