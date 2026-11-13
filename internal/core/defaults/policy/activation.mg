@@ -16,10 +16,14 @@ activation(Tool, 80) :-
 activation(Target, 90) :-
     user_intent(/current_intent, _, _, Target, _).
 
-# 4. File modification spreads to dependents
+# 4. File modification spreads to dependents, when they are few enough to be a
+# selection (context_few_importers, context_compilation.mg). A modified file of
+# a hub package activated all 672 of its importers; that set is impacted(), not
+# what the window should carry.
 activation(Dep, 70) :-
     modified(File),
     file_unit(File, Unit),
+    context_few_importers(Unit),
     import_unit(Dep, Unit).
 
 # 5. Context Pruning - Only high-activation facts enter working memory

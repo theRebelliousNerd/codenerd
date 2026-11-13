@@ -624,3 +624,20 @@ Not measured: the block on a live session over a real workspace (codeNERD was
 not run for this change), and whether the views chosen are the ones that save a
 model the most reads. The view table is the place to tune that.
 
+## Neighbourhood selection is bounded
+
+`context_neighbour_limit(8)` (`internal/core/defaults/policy/context_compilation.mg`)
+bounds what a focal file's import neighbourhood contributes to selection.
+`context_small_unit` and `context_few_importers` gate the file-by-file rules of
+`context_reachable`, the focus dependency rule, the pytest dependency override,
+the coder context priorities (`policy/coder_context.mg`) and importer activation
+(`policy/activation.mg`); an imported unit past the limit is selected as itself
+(`context_wide_unit`, at `/p80`) and shown through the `context_unit_size` and
+`intelligence_unit_importers` views. The impact relations are untouched.
+
+`TestRealWorldProfile` (`internal/system/real_world_profile_test.go`, run with
+`NERD_REAL_WORLD_PROFILE=1`) is the instrument that found this: it loads this
+repository's fast scan into the production kernel, applies a turn's facts and
+prints the rows each step derives per predicate with the step's cost. A relation
+that is large there is a rule whose output grows with the workspace.
+

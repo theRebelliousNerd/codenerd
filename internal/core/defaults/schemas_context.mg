@@ -57,6 +57,15 @@ Decl context_view(Predicate, Arity, Position, Rank, Scope) bound [/name, /number
 # the neighbourhood selected around it.
 Decl context_focal(Entity) bound [/string].
 
+# context_neighbour_limit(N) - the most files a unit may have, or the most
+# importers, for its files to be selected one by one as a focal file's
+# neighbourhood. Past it the unit is selected as one entity (context_wide_unit).
+Decl context_neighbour_limit(N) bound [/number].
+Decl context_unit_size(Unit, N) bound [/string, /number].
+Decl context_small_unit(Unit) bound [/string].
+Decl context_few_importers(Unit) bound [/string].
+Decl context_wide_unit(Unit) bound [/string].
+
 # session_note(Key, Value) - a short-term observation the model recorded for
 # this session with the piggyback memory operation "note"
 # (protocol/piggyback/memory_ops), e.g. session_note("current_focus",

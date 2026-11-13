@@ -69,6 +69,7 @@ context_relevant(File, /p85) :-
 context_relevant(Dep, /p70) :-
     focus_resolution(_, File, _, _),
     import_unit(File, Unit),
+    context_small_unit(Unit),
     file_unit(Dep, Unit).
 
 # Context-atom fallback: existing activation.mg derives context_atom(Fact) at Score > 30
@@ -138,6 +139,9 @@ context_view(/file_unit, 2, 0, 2, /any).
 context_view(/test_file_for, 2, 0, 2, /any).
 context_view(/test_file_for, 2, 1, 2, /any).
 context_view(/session_note, 2, 0, 2, /any).
+# Of a unit selected as itself: how many files it has and how many import it.
+context_view(/context_unit_size, 2, 0, 2, /any).
+context_view(/intelligence_unit_importers, 2, 0, 2, /any).
 
 # Rank 3: what it reaches. Shown of the entities being worked on.
 context_view(/import_unit, 2, 0, 3, /focal).
@@ -163,22 +167,59 @@ context_reachable(File, /hop0) :-
 context_reachable(File, /hop0) :-
     modified(File).
 
-# Hop 1: direct dependencies of focal files (what focal files import)
+# A neighbourhood is selected file by file only where it is small enough to be
+# a selection. Measured on this repository (2026-11-13,
+# TestRealWorldProfile): one modified file of a hub package selected 2,051
+# files -- every importer of the package, then every file of every package
+# those import -- which is 29% of the workspace named "relevant", cut to the
+# budget in alphabetical order. A wide unit is selected as itself: one entity
+# whose views say how large it is and how many files import it.
+context_neighbour_limit(8).
+
+context_unit_size(Unit, N) :-
+    file_unit(_, Unit) |>
+    do fn:group_by(Unit),
+    let N = fn:count().
+
+context_small_unit(Unit) :-
+    context_unit_size(Unit, N),
+    context_neighbour_limit(Limit),
+    N <= Limit.
+
+context_few_importers(Unit) :-
+    intelligence_unit_importers(Unit, N),
+    context_neighbour_limit(Limit),
+    N <= Limit.
+
+# Hop 1: direct dependencies of focal files (what focal files import), file by
+# file when the imported unit is small...
 context_reachable(Dep, /hop1) :-
     context_reachable(File, /hop0),
     import_unit(File, Unit),
+    context_small_unit(Unit),
     file_unit(Dep, Unit).
 
-# Hop 1: reverse dependencies (files that import focal files)
+# ...and as the unit when it is not.
+context_wide_unit(Unit) :-
+    context_reachable(File, /hop0),
+    import_unit(File, Unit),
+    context_unit_size(Unit, _),
+    !context_small_unit(Unit).
+
+# Hop 1: reverse dependencies (files that import focal files), when they are
+# few. A widely imported file's importers are a number, shown by the
+# intelligence_dependent_count view.
 context_reachable(Importer, /hop1) :-
     context_reachable(File, /hop0),
     file_unit(File, Unit),
+    context_few_importers(Unit),
     import_unit(Importer, Unit).
 
-# Hop 2: dependencies of hop-1 files (2-hop reach)
+# Hop 2: dependencies of hop-1 files (2-hop reach), under the same limit.
 context_reachable(Dep, /hop2) :-
     context_reachable(Mid, /hop1),
     import_unit(Mid, Unit),
+    context_small_unit(Unit),
     file_unit(Dep, Unit).
 
 # Priority by hop distance
@@ -196,11 +237,14 @@ context_file_priority(Dep, /p85) :-
     test_state(/failing),
     pytest_failure(_, _, RootFile, _, _),
     import_unit(RootFile, Unit),
+    context_small_unit(Unit),
     file_unit(Dep, Unit).
 
 # Wire C4 file priorities into C1's context_relevant chain
 context_relevant(File, Priority) :-
     context_file_priority(File, Priority).
+context_relevant(Unit, /p80) :-
+    context_wide_unit(Unit).
 
 # =============================================================================
 # C3: Observation Masking Rules

@@ -155,3 +155,26 @@ mention it in the compressor's own kernel, as before.
 | GAP-CTX-ENTITY-VIEWS | Derived entity views across shards | `buildKernelDerivedContext` resolves a selected entity to "every fact that carries it as an argument" among the facts of the compressor's own kernel. In a chat session that kernel is the Cortex's catch-all shard, which holds none of the world model: a file selected at `/p100` contributes no symbol, import, test-pairing or failure fact to the block. What is shown is an accident of which shard a predicate lives in, and no policy says what describes an entity. | Required contract above | P1 | Implemented; focused tests pass; not yet observed on a live session | `core.BoundRows`; `Compressor.SetKernelReader` | On a domain Cortex with a file's world facts in the world shard and the file modified, the built context carries that file's symbols and import rows, compact views of every entity before the bulky view of any; a file selected only as a neighbour carries the `/any` views and not the `/focal` ones; a policy that adds a view changes the block with no Go change; a live chat turn's prompt dump shows the views of the files it worked on. |
 
 **Verified current:** `TestDomainCortex_ASelectedFileIsShownThroughItsViews` (`internal/system/domain_cortex_entity_views_test.go:22`) covers every exit clause but the last; `Compressor.viewFacts` (`internal/context/entity_views.go:103`). The live-session clause is open.
+
+## Required contract: a neighbourhood is a selection, not a closure
+
+The entities `should_include_context` names are what the window is about. A
+rule that names every file reachable from a focal file names a large share of
+the workspace for a file in a widely imported package, and the budget then
+keeps whichever names sort first. Selection must stay small enough that every
+selected entity can be shown:
+
+- a focal file's imports are selected file by file when the imported unit has
+  at most `context_neighbour_limit` files, and as the unit itself (one entity)
+  when it has more;
+- a focal file's importers are selected file by file when there are at most
+  that many; past it they are a number, shown by the dependent-count view;
+- the same limit governs the coder's context set and importer activation;
+- impact (`impacted`, `coder_impacted_*`) is not selection and is not limited.
+
+| Gap ID | Capability | Current state / deficiency | Target | Severity | Phase | Dependencies | Exit criteria |
+|---|---|---|---|---|---|---|---|
+| GAP-CTX-NEIGHBOURHOOD-BOUND | Bounded neighbourhood selection | Measured on this repository's own scan in the production kernel (`TestRealWorldProfile`, `internal/system/real_world_profile_test.go`): one modified file of a hub package selected 2,051 files through `context_reachable` and 672 more through importer activation; a coder target in it put 693 files in `coder_final_context_include`. Ties were cut alphabetically. | Required contract above | P1 | Implemented; focused tests pass | `file_unit`, `import_unit`, `intelligence_unit_importers` | The same profile selects a dozen entities for an intent plus a modified hub file; on a domain Cortex a small imported unit and few importers are selected file by file, a wide unit as itself and wide importers not at all, with `impacted` unchanged. |
+
+**Verified current:** `TestDomainCortex_AWideNeighbourhoodIsSelectedAsItsUnit` (`internal/system/domain_cortex_neighbourhood_test.go`); the profile after the change: 9 entities for the intent, 3 more for the modified hub file. Not established: that 8 is the right limit. It is one policy fact.
+

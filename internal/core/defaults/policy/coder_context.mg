@@ -15,16 +15,20 @@
 coder_context_priority(File, 100) :-
     coder_target(File).
 
-# Direct dependencies have high priority
+# Direct dependencies have high priority. A neighbourhood is included file by
+# file only where it is small enough to be a selection (context_neighbour_limit,
+# context_compilation.mg): a target in a hub package made 693 files "context".
 coder_context_priority(File, 80) :-
     coder_target(Target),
     import_unit(Target, Unit),
+    context_small_unit(Unit),
     file_unit(File, Unit).
 
 # Files that import target have medium priority
 coder_context_priority(File, 60) :-
     coder_target(Target),
     file_unit(Target, Unit),
+    context_few_importers(Unit),
     import_unit(File, Unit).
 
 # Test files for target have high priority
