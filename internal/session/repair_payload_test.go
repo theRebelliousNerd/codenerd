@@ -33,7 +33,7 @@ var recallHandle = regexp.MustCompile(regexp.QuoteMeta(retiredPayloadPrefix) + `
 func requestBytes(history []types.Message) int {
 	n := 0
 	for _, m := range history {
-		text, results, reasoning, calls := messageBytes(m)
+		text, results, reasoning, calls, _ := messageBytes(m)
 		n += text + results + reasoning + calls
 	}
 	return n

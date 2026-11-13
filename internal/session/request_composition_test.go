@@ -90,3 +90,30 @@ func TestRequestComposition_RidesEveryWorkingRequestToTheProvider(t *testing.T) 
 		t.Fatalf("compositions at the provider = %+v, want one with the round's %d result bytes", p.got, len(body))
 	}
 }
+
+// A tool call whose arguments do not encode is not counted as a zero-byte
+// call in silence: its name still counts, and the measurement names the call
+// it could not measure. The encodable call beside it is measured whole.
+func TestMessageBytes_NamesAToolCallItCannotMeasure(t *testing.T) {
+	t.Parallel()
+	good := types.ToolCall{ID: "call-ok", Name: "read_file", Input: map[string]any{"path": "a.go"}}
+	bad := types.ToolCall{ID: "call-bad", Name: "write_file", Input: map[string]any{"content": make(chan int)}}
+	m := types.Message{Role: "assistant", ToolCalls: []types.ToolCall{good, bad}}
+
+	_, _, _, calls, err := messageBytes(m)
+	if err == nil {
+		t.Fatal("messageBytes reported no error for a tool call whose arguments cannot be encoded")
+	}
+	if !strings.Contains(err.Error(), "write_file") || !strings.Contains(err.Error(), "call-bad") {
+		t.Fatalf("the error does not name the unmeasured call: %v", err)
+	}
+	want := len("read_file") + len(`{"path":"a.go"}`) + len("write_file")
+	if calls != want {
+		t.Fatalf("calls = %d bytes, want %d (the good call whole, the bad call's name)", calls, want)
+	}
+
+	_, _, _, _, err = messageBytes(types.Message{Role: "assistant", ToolCalls: []types.ToolCall{good}})
+	if err != nil {
+		t.Fatalf("an encodable call reported a measurement error: %v", err)
+	}
+}

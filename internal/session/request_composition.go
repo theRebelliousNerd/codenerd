@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -100,14 +101,29 @@ func (loop *workingLoop) payloadOf(m types.Message) string {
 // the anchor, then history from the ledger's start, in order.
 func (loop *workingLoop) composition(system string, history, messages []types.Message, definitions []types.ToolDefinition) broker.Composition {
 	c := broker.Composition{System: len(system)}
-	if len(definitions) > 0 {
-		if raw, err := json.Marshal(definitions); err == nil {
-			c.Catalog = len(raw)
+	var unmeasured []error
+	defer func() {
+		if err := errors.Join(unmeasured...); err != nil {
+			logging.Get(logging.CategorySession).Warn("Working request composition is partial: %v", err)
 		}
+	}()
+	if len(definitions) > 0 {
+		raw, err := json.Marshal(definitions)
+		if err != nil {
+			unmeasured = append(unmeasured, fmt.Errorf("tool catalog not measured: %w", err))
+		}
+		c.Catalog = len(raw)
+	}
+	measure := func(m types.Message) (int, int, int, int) {
+		text, results, reasoning, calls, err := messageBytes(m)
+		if err != nil {
+			unmeasured = append(unmeasured, err)
+		}
+		return text, results, reasoning, calls
 	}
 	if loop == nil {
 		for _, m := range messages {
-			text, results, reasoning, calls := messageBytes(m)
+			text, results, reasoning, calls := measure(m)
 			c.Prior += text + results + reasoning + calls
 		}
 		return c
@@ -133,7 +149,7 @@ func (loop *workingLoop) composition(system string, history, messages []types.Me
 	start := ledgerStart(history, loop.task)
 	anchor := len(loop.prior)
 	for i, m := range messages {
-		text, results, reasoning, calls := messageBytes(m)
+		text, results, reasoning, calls := measure(m)
 		switch {
 		case i < anchor:
 			c.Prior += text + results + reasoning + calls
@@ -168,8 +184,11 @@ func (loop *workingLoop) composition(system string, history, messages []types.Me
 
 // messageBytes is a message's bytes by block kind: text, tool results,
 // replayed reasoning (its text and signature), and tool calls (name and
-// encoded arguments).
-func messageBytes(m types.Message) (text, results, reasoning, calls int) {
+// encoded arguments). A tool call whose arguments do not encode counts its
+// name only, and err names it: the composition says what it could not
+// measure instead of reporting those arguments as zero bytes.
+func messageBytes(m types.Message) (text, results, reasoning, calls int, err error) {
+	var unmeasured []error
 	for _, b := range m.Content() {
 		switch b.Kind {
 		case types.BlockToolResult:
@@ -177,7 +196,12 @@ func messageBytes(m types.Message) (text, results, reasoning, calls int) {
 		case types.BlockThinking:
 			reasoning += len(b.Text) + len(b.Signature)
 		case types.BlockToolUse:
-			raw, _ := json.Marshal(b.Input)
+			raw, merr := json.Marshal(b.Input)
+			if merr != nil {
+				unmeasured = append(unmeasured, fmt.Errorf("tool call %s (%s): arguments not measured: %w", b.Name, b.ID, merr))
+				calls += len(b.Name)
+				continue
+			}
 			calls += len(b.Name) + len(raw)
 		case types.BlockServerTool:
 			calls += len(b.Raw)
@@ -185,7 +209,7 @@ func messageBytes(m types.Message) (text, results, reasoning, calls int) {
 			text += len(b.Text)
 		}
 	}
-	return text, results, reasoning, calls
+	return text, results, reasoning, calls, errors.Join(unmeasured...)
 }
 
 // logRequestComposition writes one working request's parts and, once it
