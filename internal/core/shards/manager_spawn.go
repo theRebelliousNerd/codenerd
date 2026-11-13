@@ -412,7 +412,28 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 	// was three shards you did not know you were paying for".
 	ctx = broker.WithPurpose(ctx, broker.PurposeSubagent)
 
+	// The run is registered before the goroutine starts, under the same lock
+	// that admitted the shard, so StopAll can never miss a shard it reported
+	// stopping.
+	runCtx, runCancel := context.WithCancel(ctx)
+	run := &shardRun{cancel: runCancel, done: make(chan struct{})}
+	if sm.runs == nil {
+		sm.runs = make(map[string]*shardRun)
+	}
+	sm.runs[id] = run
+
 	go func() {
+		// Registered first so it runs last: the goroutine has ended only once
+		// the transcript, the audit line and the result are written.
+		defer func() {
+			runCancel()
+			sm.mu.Lock()
+			if sm.runs[id] == run {
+				delete(sm.runs, id)
+			}
+			sm.mu.Unlock()
+			close(run.done)
+		}()
 		defer func() {
 			if r := recover(); r != nil {
 				panicErr := fmt.Errorf("shard %s panicked: %v", id, r)
@@ -455,7 +476,7 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 		if execTimeout == 0 {
 			execTimeout = 15 * time.Minute
 		}
-		execCtx, execCancel := context.WithTimeout(ctx, execTimeout)
+		execCtx, execCancel := context.WithTimeout(runCtx, execTimeout)
 		defer execCancel()
 
 		// Hint to shared LLM clients (e.g. Codex CLI) what capability tier this shard expects,
@@ -465,11 +486,11 @@ func (sm *ShardManager) SpawnAsyncWithContext(ctx context.Context, typeName, tas
 			execCtx = types.WithModelName(execCtx, strings.TrimSpace(config.Model.Name))
 		}
 
-		run := sessionlog.RunAgent
+		record := sessionlog.RunAgent
 		if isService {
-			run = sessionlog.RunService
+			record = sessionlog.RunService
 		}
-		res, err := run(execCtx, typeName, id, task, func(ctx context.Context) (string, error) {
+		res, err := record(execCtx, typeName, id, task, func(ctx context.Context) (string, error) {
 			return agent.Execute(ctx, task)
 		})
 
@@ -613,9 +634,15 @@ func (sm *ShardManager) GetActiveShards() []types.ShardAgent {
 	return active
 }
 
+// StopAll stops every active shard, cancels every running shard's context,
+// and returns when each of those goroutines has ended -- including the
+// transcript and result each records after its agent returns. It used to
+// return as soon as Stop had been called, so a system shard's closing
+// transcript write landed under .nerd after Cortex.Close had returned.
+// A shard that never observes either signal holds StopAll; Cortex.Close
+// bounds the step and names it.
 func (sm *ShardManager) StopAll() {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 	count := len(sm.shards)
 	logging.Shards("StopAll: stopping %d active shards", count)
 	for id, s := range sm.shards {
@@ -624,6 +651,17 @@ func (sm *ShardManager) StopAll() {
 		}
 	}
 	sm.shards = make(map[string]types.ShardAgent)
+	runs := make([]*shardRun, 0, len(sm.runs))
+	for _, run := range sm.runs {
+		run.cancel()
+		runs = append(runs, run)
+	}
+	sm.mu.Unlock()
+
+	// Joined outside the lock: each goroutine takes sm.mu to record its result.
+	for _, run := range runs {
+		<-run.done
+	}
 }
 
 func (sm *ShardManager) StartSystemShards(ctx context.Context) error {

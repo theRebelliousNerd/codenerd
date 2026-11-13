@@ -320,6 +320,7 @@ func TestExecutor_Process_RealGeneratedBinaryFeedbackRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	closed = true
+	assertShardTranscriptsFinal(t, workspace)
 	reopened := autopoiesis.NewLearningStore(filepath.Join(workspace, ".nerd", "tools", ".learnings"))
 	ack, ackOK := reopened.ExecutionAcknowledgment(request.Key())
 	feedback, feedbackOK := reopened.ExecutionFeedback(request.Key())
@@ -335,6 +336,40 @@ func TestExecutor_Process_RealGeneratedBinaryFeedbackRoundTrip(t *testing.T) {
 		}
 		if _, ok := reopened.ExecutionFeedback(refused.Key()); ok {
 			t.Errorf("refused request %s fabricated durable feedback", refused.Key())
+		}
+	}
+}
+
+// assertShardTranscriptsFinal requires every shard transcript under .nerd to
+// hold its final record once Cortex.Close has returned. The record is written
+// by the shard's goroutine after its agent returns; Close used to return
+// before that goroutine ended, and the late write under .nerd raced this
+// test's TempDir cleanup ("directory not empty").
+func assertShardTranscriptsFinal(t *testing.T, workspace string) {
+	t.Helper()
+	transcripts, err := filepath.Glob(filepath.Join(workspace, ".nerd", "sessions", "*", "*", "transcript.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range transcripts {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var transcript struct {
+			Events []struct {
+				Kind string `json:"kind"`
+			} `json:"events"`
+		}
+		if err := json.Unmarshal(data, &transcript); err != nil {
+			t.Fatalf("shard transcript %s: %v", path, err)
+		}
+		final := false
+		for _, ev := range transcript.Events {
+			final = final || ev.Kind == "final"
+		}
+		if !final {
+			t.Errorf("shard transcript %s has no final record after Cortex.Close returned:\n%s", path, data)
 		}
 	}
 }

@@ -1,6 +1,8 @@
 package shards
 
 import (
+	"context"
+
 	"codenerd/internal/config"
 	"codenerd/internal/logging"
 	"codenerd/internal/transparency"
@@ -89,6 +91,12 @@ type ShardManager struct {
 	promptSyncer types.AgentPromptSyncFunc // Callback to sync agent prompts into the agent KB (avoids import cycle)
 	jitRegistrar types.JITDBRegistrar      // Callback to register agent DBs with JIT compiler
 	activeJITDBs map[string]func()         // Scoped DB releases, bound to the acquisition at spawn
+	// runs holds, for every spawned shard whose goroutine has not ended, the
+	// cancel for its run and a channel closed when the goroutine has ended --
+	// after the agent returned and its transcript and result were recorded.
+	// StopAll cancels and joins them: Close joins what it started, so a
+	// shard's last write lands before its owner tears the workspace down.
+	runs map[string]*shardRun
 
 	// Optional Glass Box event bus for TUI activity overlay. When set,
 	// the manager emits shard lifecycle events (spawn / completion) so
@@ -122,6 +130,13 @@ func (sm *ShardManager) emitShardEvent(summary, details, source string, dur time
 	})
 }
 
+// shardRun is one spawned shard's goroutine: cancel stops its execution
+// context and done closes when the goroutine has returned.
+type shardRun struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
 func NewShardManager() *ShardManager {
 	logging.Shards("Creating new ShardManager")
 	sm := &ShardManager{
@@ -130,6 +145,7 @@ func NewShardManager() *ShardManager {
 		profiles:     make(map[string]types.ShardConfig),
 		factories:    make(map[string]types.ShardFactory),
 		activeJITDBs: make(map[string]func()),
+		runs:         make(map[string]*shardRun),
 	}
 	logging.ShardsDebug("ShardManager initialized with empty maps")
 	return sm
