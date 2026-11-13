@@ -40,8 +40,10 @@ func TestNewTestDependencyBuilder(t *testing.T) {
 	if builder.testFuncs == nil {
 		t.Errorf("Expected testFuncs map to be initialized")
 	}
-	if builder.dependencies == nil {
-		t.Errorf("Expected dependencies map to be initialized")
+	// The graph's maps are made by Build; a builder that has not built
+	// answers every question with nothing, not with a nil-map write.
+	if got := builder.GetImpactedTests([]string{"fn:any"}); len(got) != 0 {
+		t.Errorf("an unbuilt builder reported impacted tests: %v", got)
 	}
 }
 

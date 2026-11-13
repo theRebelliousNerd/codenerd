@@ -6,9 +6,9 @@ package world
 import (
 	"context"
 	"fmt"
+	"iter"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 
@@ -24,11 +24,22 @@ type TestDependencyBuilder struct {
 	projectRoot string
 
 	// Caches
-	testFiles    map[string]bool     // File path → is test file
-	testFuncs    map[string]bool     // Ref → is test function
-	dependencies map[string][]string // Test Ref → Source Refs
-	elements     []codedom.FactData
-	aliases      map[string]string
+	testFiles map[string]bool // File path → is test file
+	testFuncs map[string]bool // Ref → is test function
+	elements  []codedom.FactData
+	aliases   map[string]string
+
+	// The graph (buildDependencyEdges). callDeps is the call edges, each
+	// caller's callees in first-seen order; fileDeps is the file-level
+	// edges, a test file's source files in first-seen order, unexpanded.
+	// refsByFile, testRefsByFile and fileOfRef index the elements once.
+	callDeps       map[string][]string
+	callSeen       map[string]map[string]struct{}
+	fileDeps       map[string][]string
+	fileDepSeen    map[string]map[string]struct{}
+	refsByFile     map[string][]string
+	testRefsByFile map[string][]string
+	fileOfRef      map[string]string
 }
 
 // Verify TestDependencyBuilder implements the interface
@@ -87,11 +98,10 @@ func SymbolBareName(ref string) string {
 // NewTestDependencyBuilder creates a new TestDependencyBuilder.
 func NewTestDependencyBuilder(kernel codedom.KernelQuerier, projectRoot string) *TestDependencyBuilder {
 	return &TestDependencyBuilder{
-		kernel:       kernel,
-		projectRoot:  projectRoot,
-		testFiles:    make(map[string]bool),
-		testFuncs:    make(map[string]bool),
-		dependencies: make(map[string][]string),
+		kernel:      kernel,
+		projectRoot: projectRoot,
+		testFiles:   make(map[string]bool),
+		testFuncs:   make(map[string]bool),
 	}
 }
 
@@ -109,7 +119,6 @@ func (b *TestDependencyBuilder) Build(ctx context.Context) error {
 	}
 	b.testFiles = make(map[string]bool)
 	b.testFuncs = make(map[string]bool)
-	b.dependencies = make(map[string][]string)
 	if err := b.loadElements(); err != nil {
 		return err
 	}
@@ -242,8 +251,24 @@ func (b *TestDependencyBuilder) isTestFunction(ref, file string) bool {
 	return false
 }
 
-// buildDependencyEdges constructs edges from tests to source code.
+// buildDependencyEdges records what each test depends on.
+//
+// Two kinds of edge, kept apart. A call edge is recorded as it is. A
+// file-level edge -- a test file imports a file, or sits beside it in a Go
+// package -- says every test function of the one depends on every element of
+// the other; it is recorded as the pair of files and expanded when asked.
+//
+// It used to be expanded at build time, and each expansion rescanned every
+// element to find the two files' symbols, once per import edge of a test file
+// and once per same-directory pair found by comparing every test file with
+// every file; each resulting edge was then added with a linear duplicate scan
+// of the test's list. On a workspace of a few thousand test files that is
+// billions of steps and millions of stored edges before the first question
+// is answered. The answers are the same (see the reference builder in the
+// tests).
 func (b *TestDependencyBuilder) buildDependencyEdges(ctx context.Context) error {
+	b.indexElements()
+
 	// Method 1: Direct call relationships
 	callFacts, err := b.kernel.Query("code_calls")
 	if err == nil {
@@ -266,9 +291,12 @@ func (b *TestDependencyBuilder) buildDependencyEdges(ctx context.Context) error 
 				callee = ref
 			}
 			if caller != "" && callee != "" {
-				b.addDependency(caller, callee)
+				b.addCallDependency(caller, callee)
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	// Method 2: Import relationships
@@ -282,7 +310,7 @@ func (b *TestDependencyBuilder) buildDependencyEdges(ctx context.Context) error 
 			imported, _ := fact.Args[1].(string)
 
 			if b.testFiles[importer] {
-				// All test functions in importer depend on all public functions in imported
+				// All test functions in importer depend on all elements in imported
 				b.addFileLevelDependency(importer, imported)
 			}
 		}
@@ -294,80 +322,123 @@ func (b *TestDependencyBuilder) buildDependencyEdges(ctx context.Context) error 
 	return nil
 }
 
-// addDependency adds a test→source dependency edge.
-func (b *TestDependencyBuilder) addDependency(testRef, sourceRef string) {
-	// Don't add self-dependencies or test-to-test dependencies
-	if testRef == sourceRef || b.testFuncs[sourceRef] {
-		return
-	}
-
-	deps := b.dependencies[testRef]
-	// Check for duplicates
-	if slices.Contains(deps, sourceRef) {
-		return
-	}
-	b.dependencies[testRef] = append(deps, sourceRef)
-}
-
-// addFileLevelDependency adds dependencies from all tests in testFile to all elements in sourceFile.
-func (b *TestDependencyBuilder) addFileLevelDependency(testFile, sourceFile string) {
-	// Query elements in source file
-	facts := b.elements
-
-	var sourceRefs []string
-	var testRefs []string
-
-	for _, fact := range facts {
+// indexElements groups the elements by file, in element order, and records
+// each ref's first file. Every later step reads these instead of rescanning.
+func (b *TestDependencyBuilder) indexElements() {
+	b.refsByFile = make(map[string][]string)
+	b.testRefsByFile = make(map[string][]string)
+	b.fileOfRef = make(map[string]string)
+	b.callDeps = make(map[string][]string)
+	b.callSeen = make(map[string]map[string]struct{})
+	b.fileDeps = make(map[string][]string)
+	b.fileDepSeen = make(map[string]map[string]struct{})
+	for _, fact := range b.elements {
 		if len(fact.Args) < 5 {
 			continue
 		}
 		ref, _ := fact.Args[0].(string)
 		file, _ := fact.Args[2].(string)
-
-		if file == sourceFile {
-			sourceRefs = append(sourceRefs, ref)
+		b.refsByFile[file] = append(b.refsByFile[file], ref)
+		if b.testFuncs[ref] {
+			b.testRefsByFile[file] = append(b.testRefsByFile[file], ref)
 		}
-		if file == testFile && b.testFuncs[ref] {
-			testRefs = append(testRefs, ref)
-		}
-	}
-
-	// Add cross-product dependencies
-	for _, testRef := range testRefs {
-		for _, sourceRef := range sourceRefs {
-			b.addDependency(testRef, sourceRef)
+		if _, known := b.fileOfRef[ref]; !known {
+			b.fileOfRef[ref] = file
 		}
 	}
 }
 
-// buildPackageDependencies adds same-package dependencies (Go-specific).
+// addCallDependency adds a caller->callee edge, once.
+func (b *TestDependencyBuilder) addCallDependency(from, to string) {
+	// Don't add self-dependencies or dependencies on a test.
+	if from == to || b.testFuncs[to] {
+		return
+	}
+	seen := b.callSeen[from]
+	if seen == nil {
+		seen = make(map[string]struct{})
+		b.callSeen[from] = seen
+	}
+	if _, dup := seen[to]; dup {
+		return
+	}
+	seen[to] = struct{}{}
+	b.callDeps[from] = append(b.callDeps[from], to)
+}
+
+// addFileLevelDependency records that every test function of testFile depends
+// on every element of sourceFile.
+func (b *TestDependencyBuilder) addFileLevelDependency(testFile, sourceFile string) {
+	seen := b.fileDepSeen[testFile]
+	if seen == nil {
+		seen = make(map[string]struct{})
+		b.fileDepSeen[testFile] = seen
+	}
+	if _, dup := seen[sourceFile]; dup {
+		return
+	}
+	seen[sourceFile] = struct{}{}
+	b.fileDeps[testFile] = append(b.fileDeps[testFile], sourceFile)
+}
+
+// buildPackageDependencies adds same-package dependencies (Go-specific): each
+// test file depends on the non-test files of its directory.
 func (b *TestDependencyBuilder) buildPackageDependencies() {
-	// For each test file, add dependency to non-test files in same package
 	facts, _ := b.kernel.Query("file_topology")
-	allFiles := make(map[string]bool)
+	filesByDir := make(map[string][]string)
+	listed := make(map[string]bool)
 	for _, fact := range facts {
 		if len(fact.Args) >= 1 {
-			if f, ok := fact.Args[0].(string); ok {
-				allFiles[f] = true
+			if f, ok := fact.Args[0].(string); ok && !listed[f] {
+				listed[f] = true
+				filesByDir[filepath.Dir(f)] = append(filesByDir[filepath.Dir(f)], f)
 			}
 		}
 	}
 
 	for testFile := range b.testFiles {
-		dir := filepath.Dir(testFile)
-		for sourceFile := range allFiles {
-			if filepath.Dir(sourceFile) == dir && !b.testFiles[sourceFile] {
+		for _, sourceFile := range filesByDir[filepath.Dir(testFile)] {
+			if !b.testFiles[sourceFile] {
 				b.addFileLevelDependency(testFile, sourceFile)
 			}
 		}
 	}
 }
 
-// countDependencies returns the total number of dependency edges.
+// fileLevelRefs yields the elements of one of ref's file-level dependencies:
+// a test function depends on every element of sourceFile that is not itself
+// and not a test.
+func (b *TestDependencyBuilder) fileLevelRefs(ref, sourceFile string) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for _, sourceRef := range b.refsByFile[sourceFile] {
+			if sourceRef == ref || b.testFuncs[sourceRef] {
+				continue
+			}
+			if !yield(sourceRef) {
+				return
+			}
+		}
+	}
+}
+
+// fileDepsOf is the file-level dependencies of ref: its file's, when ref is
+// one of that file's test functions.
+func (b *TestDependencyBuilder) fileDepsOf(ref string) []string {
+	if !b.testFuncs[ref] {
+		return nil
+	}
+	return b.fileDeps[b.fileOfRef[ref]]
+}
+
+// countDependencies returns the number of recorded edges: call edges, and
+// file-level pairs unexpanded.
 func (b *TestDependencyBuilder) countDependencies() int {
 	count := 0
-	for _, deps := range b.dependencies {
+	for _, deps := range b.callDeps {
 		count += len(deps)
+	}
+	for _, files := range b.fileDeps {
+		count += len(files)
 	}
 	return count
 }
@@ -379,41 +450,92 @@ func (b *TestDependencyBuilder) GetImpactedTests(editedRefs []string) []codedom.
 	defer b.mu.RUnlock()
 
 	editedSet := make(map[string]bool)
+	// editedFiles are the files holding an edited element: a test's file-level
+	// dependency on one of them is the only way that kind of edge can match.
+	editedFiles := make(map[string]bool)
 	for _, ref := range editedRefs {
 		editedSet[ref] = true
 	}
+	for file, refs := range b.refsByFile {
+		for _, ref := range refs {
+			if editedSet[ref] {
+				editedFiles[file] = true
+				break
+			}
+		}
+	}
+	// editedCallees is, per element, the edited elements it calls, in call
+	// order: the one-step transitive match. viaFiles are the files holding
+	// such an element.
+	editedCallees := make(map[string][]string)
+	viaFiles := make(map[string]bool)
+	for from, callees := range b.callDeps {
+		for _, callee := range callees {
+			if editedSet[callee] {
+				editedCallees[from] = append(editedCallees[from], callee)
+			}
+		}
+	}
+	for file, refs := range b.refsByFile {
+		for _, ref := range refs {
+			if len(editedCallees[ref]) > 0 {
+				viaFiles[file] = true
+				break
+			}
+		}
+	}
 
 	var impacted []codedom.ImpactedTestInfo
-	seen := make(map[string]bool)
 
 	for testRef := range b.testFuncs {
-		if seen[testRef] {
-			continue
-		}
-
-		deps := b.dependencies[testRef]
 		var matchedEdits []string
 		priority := "low"
 
-		// Check direct dependencies
-		for _, dep := range deps {
-			if editedSet[dep] {
+		// Direct dependencies, call edges first, each edited element once.
+		matched := make(map[string]bool)
+		for _, dep := range b.callDeps[testRef] {
+			if editedSet[dep] && !matched[dep] {
+				matched[dep] = true
 				matchedEdits = append(matchedEdits, dep)
 				priority = "high"
 			}
 		}
+		for _, sourceFile := range b.fileDepsOf(testRef) {
+			if !editedFiles[sourceFile] {
+				continue
+			}
+			for dep := range b.fileLevelRefs(testRef, sourceFile) {
+				if editedSet[dep] && !matched[dep] {
+					matched[dep] = true
+					matchedEdits = append(matchedEdits, dep)
+					priority = "high"
+				}
+			}
+		}
 
-		// Check transitive dependencies (simplified - could query kernel for full transitivity)
-		if len(matchedEdits) == 0 {
-			for _, dep := range deps {
-				depDeps := b.dependencies[dep]
-				for _, transitive := range depDeps {
-					if editedSet[transitive] {
-						matchedEdits = append(matchedEdits, transitive)
-						if priority != "high" {
-							priority = "medium"
-						}
-					}
+		// One step further when nothing matched directly: a dependency that
+		// calls an edited element. Each dependency is consulted once.
+		if len(matchedEdits) == 0 && len(editedCallees) > 0 {
+			consulted := make(map[string]bool)
+			via := func(dep string) {
+				if consulted[dep] {
+					return
+				}
+				consulted[dep] = true
+				if hits := editedCallees[dep]; len(hits) > 0 {
+					matchedEdits = append(matchedEdits, hits...)
+					priority = "medium"
+				}
+			}
+			for _, dep := range b.callDeps[testRef] {
+				via(dep)
+			}
+			for _, sourceFile := range b.fileDepsOf(testRef) {
+				if !viaFiles[sourceFile] {
+					continue
+				}
+				for dep := range b.fileLevelRefs(testRef, sourceFile) {
+					via(dep)
 				}
 			}
 		}
@@ -421,33 +543,15 @@ func (b *TestDependencyBuilder) GetImpactedTests(editedRefs []string) []codedom.
 		if len(matchedEdits) > 0 {
 			impacted = append(impacted, codedom.ImpactedTestInfo{
 				TestRef:    testRef,
-				TestFile:   b.getTestFile(testRef),
+				TestFile:   b.fileOfRef[testRef],
 				Priority:   priority,
 				Reason:     "depends_on_edited_code",
 				EditedRefs: matchedEdits,
 			})
-			seen[testRef] = true
 		}
 	}
 
 	return impacted
-}
-
-// getTestFile returns the file containing a test function.
-func (b *TestDependencyBuilder) getTestFile(testRef string) string {
-	facts := b.elements
-
-	for _, fact := range facts {
-		if len(fact.Args) >= 5 {
-			ref, _ := fact.Args[0].(string)
-			file, _ := fact.Args[2].(string)
-			if ref == testRef {
-				return file
-			}
-		}
-	}
-
-	return ""
 }
 
 // GetImpactedTestPackages returns Go packages containing impacted tests.
@@ -477,11 +581,26 @@ func (b *TestDependencyBuilder) GetCoverageGaps() []string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	// Build set of covered refs
+	// Covered: the target of a call edge, or an element of a file some test
+	// function depends on at file level.
 	covered := make(map[string]bool)
-	for _, deps := range b.dependencies {
+	for _, deps := range b.callDeps {
 		for _, dep := range deps {
 			covered[dep] = true
+		}
+	}
+	for testFile, sourceFiles := range b.fileDeps {
+		tests := b.testRefsByFile[testFile]
+		if len(tests) == 0 {
+			continue
+		}
+		for _, sourceFile := range sourceFiles {
+			for _, ref := range b.refsByFile[sourceFile] {
+				if b.testFuncs[ref] {
+					continue
+				}
+				covered[ref] = true
+			}
 		}
 	}
 
